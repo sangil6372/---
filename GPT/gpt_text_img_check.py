@@ -4,13 +4,11 @@ from tkinter import filedialog
 import json
 import base64
 from openai import OpenAI
-from dotenv import load_dotenv
 from PIL import Image
 import re
 
 from env import settings
 
-load_dotenv()
 
 MODEL: str = 'gpt-4o-mini'
 client: OpenAI = OpenAI(api_key=settings.GPT_CONFIG['GPT_API_KEY'])
@@ -33,42 +31,57 @@ def encode_image(image_path):
 
 # 이미지를 잘라내는 함수
 def crop_image(image_path, coordinates, cropped_folder_path, block_index, page_number):
-    img = Image.open(image_path)
-    img_width, img_height = img.size
+    try:
+        img = Image.open(image_path)
+        img_width, img_height = img.size
 
-    # 좌표를 픽셀 단위로 변환
-    x1 = int(coordinates["x1"] * img_width)
-    y1 = int(coordinates["y1"] * img_height)
-    x2 = int(coordinates["x2"] * img_width)
-    y2 = int(coordinates["y2"] * img_height)
+        # 좌표를 픽셀 단위로 변환
+        x1 = int(coordinates["x1"] * img_width)
+        y1 = int(coordinates["y1"] * img_height)
+        x2 = int(coordinates["x2"] * img_width)
+        y2 = int(coordinates["y2"] * img_height)
 
-    # 이미지를 잘라냄
-    cropped_img = img.crop((x1, y1, x2, y2))
+        # 좌표가 이미지 경계를 벗어나면 None 리턴
+        if x1 < 0 or y1 < 0 or x2 > img_width or y2 > img_height:
+            print(f"Block {block_index} on page {page_number} is out of bounds. Skipping this block.")
+            return None
 
-    # 너비와 높이에 따라 크기 조정
-    if cropped_img.width < 800:
-        max_width = 512
-    else:
-        max_width = 1024
+        # 크롭할 영역이 유효한지 확인 (너비 또는 높이가 0인 경우 처리)
+        if x2 <= x1 or y2 <= y1:
+            print(f"Invalid crop area for block {block_index} on page {page_number}. Skipping this block.")
+            return None
 
-    if cropped_img.height < 800:
-        max_height = 512
-    else:
-        max_height = 1024
+        # 이미지를 잘라냄
+        cropped_img = img.crop((x1, y1, x2, y2))
 
-    # 비율을 유지하며 크기 조정
-    cropped_img.thumbnail((max_width, max_height))
+        # 너비와 높이에 따라 크기 조정
+        if cropped_img.width < 800:
+            max_width = 512
+        else:
+            max_width = 1024
 
-    # 페이지별 폴더 생성
-    page_folder_path = os.path.join(cropped_folder_path, f"page_{page_number}")
-    os.makedirs(page_folder_path, exist_ok=True)
+        if cropped_img.height < 800:
+            max_height = 512
+        else:
+            max_height = 1024
 
-    # 크롭된 이미지를 페이지별 폴더에 저장
-    cropped_img_file_name = f"cropped_{page_number}_{block_index}.png"
-    cropped_img_path = os.path.join(page_folder_path, cropped_img_file_name)
-    cropped_img.save(cropped_img_path)
+        # 비율을 유지하며 크기 조정
+        cropped_img.thumbnail((max_width, max_height))
 
-    return cropped_img_path
+        # 페이지별 폴더 생성
+        page_folder_path = os.path.join(cropped_folder_path, f"page_{page_number}")
+        os.makedirs(page_folder_path, exist_ok=True)
+
+        # 크롭된 이미지를 페이지별 폴더에 저장
+        cropped_img_file_name = f"cropped_{page_number}_{block_index}.png"
+        cropped_img_path = os.path.join(page_folder_path, cropped_img_file_name)
+        cropped_img.save(cropped_img_path)
+
+        return cropped_img_path
+
+    except Exception as e:
+        print(f"Error cropping image for block {block_index} on page {page_number}: {e}")
+        return None
 
 
 # GPT API를 사용한 오타 검증 함수
@@ -173,7 +186,7 @@ for json_filename in os.listdir(json_folder_path):
 
             # shapes 리스트에서 label이 "TEXT"인 블록만 처리
             for shape in extracted_data["shapes"]:
-                if shape["label"] == "TEXT":
+                if shape["label"] == "TEXT" or shape["label"] == "FOOTNOTE" or shape["label"] == "REFERENCE":
                     text = shape["latex"]  # latex 필드에 텍스트가 있음
                     coordinates = {
                         "x1": shape["points"][0][0] / extracted_data["imageWidth"],
@@ -185,6 +198,11 @@ for json_filename in os.listdir(json_folder_path):
                     # 텍스트 블록별로 이미지 크롭
                     cropped_image_path = crop_image(image_path, coordinates, cropped_folder_path, block_index,
                                                     page_number)
+
+                    # 유효한 크롭 이미지가 없으면 해당 블록 건너뛰기
+                    if not cropped_image_path:
+                        block_index += 1
+                        continue
 
                     # GPT API로 크롭된 이미지와 텍스트 검증
                     corrected_text, prompt_tokens, completion_tokens, total_used_tokens = check_image_and_text_with_gpt(
@@ -215,7 +233,7 @@ for json_filename in os.listdir(json_folder_path):
             print(f"An error occurred in file {json_filename}: {e}", flush=True)
 
         # 수정된 데이터를 새 JSON 파일로 저장 (updated 폴더에 저장)
-        output_json_file_path = os.path.join(updated_folder_path, f"updated_{json_filename}")
+        output_json_file_path = os.path.join(updated_folder_path, f"{json_filename}")
         with open(output_json_file_path, 'w', encoding='utf-8') as output_json_file:
             json.dump(extracted_data, output_json_file, ensure_ascii=False, indent=4)
         print(f"오타 검증이 완료되었으며, 결과가 {output_json_file_path} 파일에 저장되었습니다.", flush=True)
