@@ -315,7 +315,7 @@ elapsed_time = end_time - start_time  # 소요 시간 계산
 print(f"총 소요 시간 : {elapsed_time} seconds")
 
 # 전체 폴더에서 사용된 총 토큰 출력
-print(f"전체 폴더에서 사용된 총 요청 토큰 수: {total_prompt_tokens_all_files}")
-print(f"전체 폴더에서 사용된 총 응답 토큰 수: {total_completion_tokens_all_files}")
-print(f"전체 폴더에서 사용된 총 토큰 수: {total_tokens_all_files}")
+print(f"요청 토큰 수: {total_prompt_tokens_all_files}")
+print(f"응답 토큰 수: {total_completion_tokens_all_files}")
+print(f"총 토큰 수: {total_tokens_all_files}")
 
