@@ -22,6 +22,55 @@ def select_directory(dialog_title):
     directory_path = filedialog.askdirectory(title=dialog_title)
     return directory_path
 
+# 두 박스의 y 좌표가 겹치는지 확인하는 함수
+def is_overlapping_y(box1, box2):
+    y1_min = min(box1["points"][0][1], box1["points"][1][1])
+    y1_max = max(box1["points"][0][1], box1["points"][1][1])
+
+    y2_min = min(box2["points"][0][1], box2["points"][1][1])
+    y2_max = max(box2["points"][0][1], box2["points"][1][1])
+
+    # 겹치는 부분의 시작과 끝
+    overlap_start = max(y1_min, y2_min)
+    overlap_end = min(y1_max, y2_max)
+
+    # 겹치는 길이
+    overlap_length = max(0, overlap_end - overlap_start)
+
+    # 각 박스의 높이
+    height1 = y1_max - y1_min
+    height2 = y2_max - y2_min
+
+    # 겹치는 길이가 두 박스 높이의 50% 이상인지 확인
+    if (overlap_length >= 0.5 * height1) or (overlap_length >= 0.5 * height2):
+        return True
+    return False
+
+# 커스텀 정렬 함수 정의
+def custom_sort(shapes):
+    sorted_shapes = []
+
+    while shapes:
+        current = shapes.pop(0)
+        overlaps = [current]
+        non_overlaps = []
+        # 현재 상태를 디버깅하기 위해 출력
+
+        # 겹치는 박스를 찾기
+        for other in shapes:
+            if current['label'] == other['label'] and is_overlapping_y(current, other):
+                overlaps.append(other)
+            else:
+                non_overlaps.append(other)
+
+        # 겹치는 박스들을 x 좌표로 정렬
+        overlaps_sorted = sorted(overlaps, key=lambda item: item["points"][0][0])
+        sorted_shapes.extend(overlaps_sorted)
+
+        # 남은 박스들을 다음 순서로 처리
+        shapes = non_overlaps
+
+    return sorted_shapes
 
 # 이미지 파일을 base64로 인코딩하는 함수
 def encode_image(image_path):
@@ -123,7 +172,8 @@ def check_image_and_text_with_gpt(cropped_image_path, text):
                                     "3. 텍스트 추출에 오류가 있는 경우, 이미지 내용과 다르게 맞춤법이 틀렸을 경우 수정해 주세요. "
                                     "4. 다만 이미지에 없는 내용을 생성하지 말고 객관적으로 텍스트 추출을 검수해주세요. "
                                     "5. 수식은 별도의 LaTeX 처리 없이 순수 문자열을 그대로 출력해줘. 만약 그대로 출력 불가능할 경우 백슬래쉬를 이용하지 말고 그냥 출력 해당 문자를 생략해줘"
-                                    "6. 답변은 부가 정보 없이 수정된 텍스트 그대로 건네주세요"
+                                    "6. 만약 이미지에서 텍스트 인식이 불가능할 경우 원래 텍스트를 그대로 건네주세요."
+                                    "7. 답변은 부가 정보 없이 수정된 텍스트 그대로 건네주세요"
                                     "다음은 추출된 텍스트입니다: \n\n{text}"
                         },
                         {
@@ -204,7 +254,9 @@ for json_filename in os.listdir(json_folder_path):
             # JSON 파일의 해상도 값이 0일 경우 이미지 파일에서 대체하는 함수 호출
             get_image_resolution_if_needed(image_path, extracted_data)
 
-            # shapes 리스트에서 label이 "TEXT"인 블록만 처리
+            #그 전에 일단 정렬
+            extracted_data["shapes"] = custom_sort(extracted_data["shapes"])
+            # shapes 리스트에서 label이 "TEXT", "FOOTNOTE", "REFERENCE" 인 블록만 처리
             for shape in extracted_data["shapes"]:
                 if shape["label"] == "TEXT" or shape["label"] == "FOOTNOTE" or shape["label"] == "REFERENCE":
                     text = shape["latex"]  # latex 필드에 텍스트가 있음
