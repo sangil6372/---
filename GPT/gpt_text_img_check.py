@@ -6,11 +6,12 @@ import base64
 from openai import OpenAI
 from PIL import Image
 import re
+import time
 
 from env import settings
 
 
-MODEL: str = 'gpt-4o-mini'
+MODEL: str = 'gpt-4o'
 client: OpenAI = OpenAI(api_key=settings.GPT_CONFIG['GPT_API_KEY'])
 
 
@@ -83,6 +84,22 @@ def crop_image(image_path, coordinates, cropped_folder_path, block_index, page_n
         print(f"Error cropping image for block {block_index} on page {page_number}: {e}")
         return None
 
+
+# 이미지 파일의 해상도를 JSON 데이터에서 0일 경우 대체하는 함수
+def get_image_resolution_if_needed(image_path, extracted_data):
+    try:
+        if extracted_data["imageWidth"] == 0 or extracted_data["imageHeight"] == 0:
+            img = Image.open(image_path)
+            img_width, img_height = img.size
+
+            # JSON 데이터에 이미지 해상도가 없을 경우 대체
+            if extracted_data["imageWidth"] == 0:
+                extracted_data["imageWidth"] = img_width
+            if extracted_data["imageHeight"] == 0:
+                extracted_data["imageHeight"] = img_height
+
+    except Exception as e:
+        print(f"Error getting image resolution for {image_path}: {e}")
 
 # GPT API를 사용한 오타 검증 함수
 def check_image_and_text_with_gpt(cropped_image_path, text):
@@ -158,7 +175,7 @@ total_prompt_tokens_all_files = 0
 total_completion_tokens_all_files = 0
 total_tokens_all_files = 0
 
-
+start_time = time.time()  # 시작 시간 기록
 for json_filename in os.listdir(json_folder_path):
     if json_filename.endswith('.json'):
         json_file_path = os.path.join(json_folder_path, json_filename)
@@ -183,6 +200,9 @@ for json_filename in os.listdir(json_folder_path):
             page_prompt_tokens = 0
             page_completion_tokens = 0
             page_total_tokens = 0
+
+            # JSON 파일의 해상도 값이 0일 경우 이미지 파일에서 대체하는 함수 호출
+            get_image_resolution_if_needed(image_path, extracted_data)
 
             # shapes 리스트에서 label이 "TEXT"인 블록만 처리
             for shape in extracted_data["shapes"]:
@@ -237,8 +257,13 @@ for json_filename in os.listdir(json_folder_path):
         with open(output_json_file_path, 'w', encoding='utf-8') as output_json_file:
             json.dump(extracted_data, output_json_file, ensure_ascii=False, indent=4)
         print(f"오타 검증이 완료되었으며, 결과가 {output_json_file_path} 파일에 저장되었습니다.", flush=True)
+end_time = time.time()  # 종료 시간 기록
+elapsed_time = end_time - start_time  # 소요 시간 계산
+
+print(f"총 소요 시간 : {elapsed_time} seconds")
 
 # 전체 폴더에서 사용된 총 토큰 출력
 print(f"전체 폴더에서 사용된 총 요청 토큰 수: {total_prompt_tokens_all_files}")
 print(f"전체 폴더에서 사용된 총 응답 토큰 수: {total_completion_tokens_all_files}")
 print(f"전체 폴더에서 사용된 총 토큰 수: {total_tokens_all_files}")
+
