@@ -227,7 +227,7 @@ def clean_filename(filename):
 json_folder_path = select_directory("OCR 텍스트가 저장된 JSON 파일들이 있는 폴더를 선택하세요")
 
 # 설정한 경로에 gpt_updated/ 폴더 생성
-gpt_updated_folder_path = os.path.join(r'C:\Users\USER\Desktop\GPT_UPDATED', 'gpt_updated')
+gpt_updated_folder_path = os.path.join(r'../GPT_UPDATED', 'gpt_updated')
 os.makedirs(gpt_updated_folder_path, exist_ok=True)
 
 # 전체 폴더에서 사용된 토큰을 저장할 변수들
