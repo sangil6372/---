@@ -1,15 +1,11 @@
-import os
 import tkinter as tk
 from tkinter import filedialog
 import json
-import base64
 from openai import OpenAI
-from PIL import Image
 import re
 import time
 
 from env import settings
-
 
 MODEL: str = 'gpt-4o'
 client: OpenAI = OpenAI(api_key=settings.GPT_CONFIG['GPT_API_KEY'])
@@ -21,6 +17,7 @@ def select_directory(dialog_title):
     root.withdraw()  # Tkinter 윈도우를 숨김
     directory_path = filedialog.askdirectory(title=dialog_title)
     return directory_path
+
 
 # 두 박스의 y 좌표가 겹치는지 확인하는 함수
 def is_overlapping_y(box1, box2):
@@ -45,6 +42,7 @@ def is_overlapping_y(box1, box2):
     if (overlap_length >= 0.5 * height1) or (overlap_length >= 0.5 * height2):
         return True
     return False
+
 
 # 커스텀 정렬 함수 정의
 def custom_sort(shapes):
@@ -72,6 +70,7 @@ def custom_sort(shapes):
 
     return sorted_shapes
 
+
 # 이미지 파일을 base64로 인코딩하는 함수
 def encode_image(image_path):
     with open(image_path, "rb") as image_file:
@@ -79,8 +78,13 @@ def encode_image(image_path):
     return encoded_string
 
 
-# 이미지를 잘라내는 함수
-def crop_image(image_path, coordinates, cropped_folder_path, block_index, page_number):
+import io
+import base64
+from PIL import Image
+import os
+
+
+def crop_image(image_path, coordinates, block_index, page_number):
     try:
         img = Image.open(image_path)
         img_width, img_height = img.size
@@ -118,16 +122,14 @@ def crop_image(image_path, coordinates, cropped_folder_path, block_index, page_n
         # 비율을 유지하며 크기 조정
         cropped_img.thumbnail((max_width, max_height))
 
-        # 페이지별 폴더 생성
-        page_folder_path = os.path.join(cropped_folder_path, f"page_{page_number}")
-        os.makedirs(page_folder_path, exist_ok=True)
+        # 메모리 버퍼에 이미지 저장
+        buffered = io.BytesIO()
+        cropped_img.save(buffered, format="PNG")
 
-        # 크롭된 이미지를 페이지별 폴더에 저장
-        cropped_img_file_name = f"cropped_{page_number}_{block_index}.png"
-        cropped_img_path = os.path.join(page_folder_path, cropped_img_file_name)
-        cropped_img.save(cropped_img_path)
+        # base64로 인코딩
+        encoded_cropped_img = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-        return cropped_img_path
+        return encoded_cropped_img
 
     except Exception as e:
         print(f"Error cropping image for block {block_index} on page {page_number}: {e}")
@@ -150,10 +152,10 @@ def get_image_resolution_if_needed(image_path, extracted_data):
     except Exception as e:
         print(f"Error getting image resolution for {image_path}: {e}")
 
+
 # GPT API를 사용한 오타 검증 함수
-def check_image_and_text_with_gpt(cropped_image_path, text):
+def check_image_and_text_with_gpt(image_base64, text):
     try:
-        image_base64 = encode_image(cropped_image_path)
 
         response = client.chat.completions.create(
             model=MODEL,
@@ -208,17 +210,25 @@ def extract_page_number(file_name):
     return int(match.group(1)) if match else None
 
 
+# 파일 이름에서 언더바 기준으로 마지막 부분(쪽수) 추출
+def extract_page_number_from_filename(filename):
+    return filename.rsplit('_', 1)[-1].replace('.json', '').replace('.png', '')
+
+
+# 파일 이름에서 첫 번째 언더바 앞에 있는 숫자가 5개 미만일 경우 제거하는 함수
+def clean_filename(filename):
+    parts = filename.split('_', 1)  # 언더바를 기준으로 나눔
+    if parts[0].isdigit() and len(parts[0]) < 5:
+        return '_'.join(parts[1:])  # 첫 번째 언더바 앞 숫자가 5개 미만이면 제거하고 나머지 반환
+    return filename  # 그렇지 않으면 원본 반환
+
+
 # 디렉토리 선택
-image_folder_path = select_directory("이미지 폴더를 선택하세요")
 json_folder_path = select_directory("OCR 텍스트가 저장된 JSON 파일들이 있는 폴더를 선택하세요")
 
-# /cropped 폴더 생성
-cropped_folder_path = os.path.join(image_folder_path, 'cropped')
-os.makedirs(cropped_folder_path, exist_ok=True)
-
-# /updated 폴더 생성
-updated_folder_path = os.path.join(json_folder_path, 'updated')
-os.makedirs(updated_folder_path, exist_ok=True)
+# 설정한 경로에 gpt_updated/ 폴더 생성
+gpt_updated_folder_path = os.path.join(r'C:\Users\USER\Desktop\GPT_UPDATED', 'gpt_updated')
+os.makedirs(gpt_updated_folder_path, exist_ok=True)
 
 # 전체 폴더에서 사용된 토큰을 저장할 변수들
 total_prompt_tokens_all_files = 0
@@ -226,96 +236,159 @@ total_completion_tokens_all_files = 0
 total_tokens_all_files = 0
 
 start_time = time.time()  # 시작 시간 기록
-for json_filename in os.listdir(json_folder_path):
-    if json_filename.endswith('.json'):
-        json_file_path = os.path.join(json_folder_path, json_filename)
+# 하위 폴더들을 순회하면서 각각의 폴더 내에 json과 png 파일을 처리
+for subfolder_name in os.listdir(json_folder_path):
+    subfolder_path = os.path.join(json_folder_path, subfolder_name)
 
-        # JSON 파일 읽기
-        with open(json_file_path, 'r', encoding='utf-8') as json_file:
-            extracted_data = json.load(json_file)
+    if os.path.isdir(subfolder_path):  # 하위 폴더인지 확인
+        json_files = [f for f in os.listdir(subfolder_path) if f.endswith('.json')]
+        png_files = [f for f in os.listdir(subfolder_path) if f.endswith('.png')]
 
-        # 파일 이름에서 페이지 번호 추출
-        page_number = extract_page_number(json_filename)
-        if page_number is None:
-            print(f"페이지 번호를 추출할 수 없습니다: {json_filename}")
+        # json png 이름 비교 다를 경우 continue
+        # 첫 번째 JSON 파일과 첫 번째 PNG 파일을 골라서 비교
+        first_json_file = json_files[0]
+        first_png_file = png_files[0]
+
+        # 파일 이름에서 첫 번째 언더바 앞의 숫자가 5개 미만이면 제거
+        cleaned_json_filename = clean_filename(first_json_file.replace('.json', ''))
+        cleaned_png_filename = clean_filename(first_png_file.replace('.png', ''))
+
+        # 비교 후 다르면 continue
+        if cleaned_json_filename.split('_')[0] != cleaned_png_filename.split('_')[0]:
+            print(f"파일 이름이 다릅니다: {cleaned_json_filename} != {cleaned_png_filename}")
             continue
 
-        # 이미지 파일 경로 생성
-        image_file_name = f"{os.path.splitext(json_filename)[0]}.png"  # JSON 파일과 같은 이름의 이미지 파일
-        image_path = os.path.join(image_folder_path, image_file_name)
+        # gpt_updated/ 안에 하위 폴더 이름과 동일한 폴더 생성
+        updated_subfolder_path = os.path.join(gpt_updated_folder_path, subfolder_name)
+        os.makedirs(updated_subfolder_path, exist_ok=True)
 
-        # 이미지 폴더 순회 및 오타 검증
-        try:
-            block_index = 0  # 블록 인덱스 초기화
-            page_prompt_tokens = 0
-            page_completion_tokens = 0
-            page_total_tokens = 0
+        # JSON 파일 처리
+        for json_filename in json_files:  # 중복된 os.listdir 제거
+            json_file_path = os.path.join(subfolder_path, json_filename)
 
-            # JSON 파일의 해상도 값이 0일 경우 이미지 파일에서 대체하는 함수 호출
-            get_image_resolution_if_needed(image_path, extracted_data)
+            # output 폴더에 업데이트된 해당 json 파일이 존재할 경우 continue
+            output_json_file_path = os.path.join(updated_subfolder_path, json_filename)
+            if os.path.exists(output_json_file_path):
+                print(f"이미 업데이트된 파일이 존재합니다: {json_filename}. 건너뜁니다.")
+                continue
 
-            #그 전에 일단 정렬
-            extracted_data["shapes"] = custom_sort(extracted_data["shapes"])
-            # shapes 리스트에서 label이 "TEXT", "FOOTNOTE", "REFERENCE" 인 블록만 처리
-            for shape in extracted_data["shapes"]:
-                if shape["label"] == "TEXT" or shape["label"] == "FOOTNOTE" or shape["label"] == "REFERENCE":
-                    text = shape["latex"]  # latex 필드에 텍스트가 있음
-                    coordinates = {
-                        "x1": shape["points"][0][0] / extracted_data["imageWidth"],
-                        "y1": shape["points"][0][1] / extracted_data["imageHeight"],
-                        "x2": shape["points"][1][0] / extracted_data["imageWidth"],
-                        "y2": shape["points"][1][1] / extracted_data["imageHeight"]
-                    }  # points에서 좌표 추출 및 정규화
+            # JSON 파일 읽기
+            with open(json_file_path, 'r', encoding='utf-8') as json_file:
+                extracted_data = json.load(json_file)
 
-                    # 텍스트 블록별로 이미지 크롭
-                    cropped_image_path = crop_image(image_path, coordinates, cropped_folder_path, block_index,
-                                                    page_number)
+            # json 파일 이름에서 페이지 번호 추출
+            json_page_number = extract_page_number_from_filename(json_filename)
+            if json_page_number is None:
+                print(f"페이지 번호를 추출할 수 없습니다: {json_filename}")
+                continue
 
-                    # 유효한 크롭 이미지가 없으면 해당 블록 건너뛰기
-                    if not cropped_image_path:
-                        block_index += 1
-                        continue
+            image_file_name = None
+            for png_filename in png_files:
+                png_page_number = extract_page_number_from_filename(png_filename)
+                if json_page_number == png_page_number:
+                    image_file_name = png_filename
+                    break
 
-                    # GPT API로 크롭된 이미지와 텍스트 검증
-                    corrected_text, prompt_tokens, completion_tokens, total_used_tokens = check_image_and_text_with_gpt(
-                        cropped_image_path, text)
+            if not image_file_name:  # error 출력 필요
+                print(f"PNG 파일을 찾을 수 없습니다: {json_filename}")
+                continue
 
-                    # 페이지별 토큰 수 합산
-                    page_prompt_tokens += prompt_tokens
-                    page_completion_tokens += completion_tokens
-                    page_total_tokens += total_used_tokens
+            # 이미지 파일 경로 생성
+            #           image_file_name = f"{os.path.splitext(json_filename)[0]}.png"  # JSON 파일과 같은 이름의 이미지 파일
+            image_path = os.path.join(subfolder_path, image_file_name)
 
-                    # 결과를 업데이트
-                    if corrected_text:
-                        shape["latex"] = corrected_text
+            # 이미지 폴더 순회 및 오타 검증
+            try:
+                block_index = 0  # 블록 인덱스 초기화
+                page_prompt_tokens = 0
+                page_completion_tokens = 0
+                page_total_tokens = 0
 
-                    block_index += 1  # 블록 인덱스 증가
+                # JSON 파일의 해상도 값이 0일 경우 이미지 파일에서 대체하는 함수 호출
+                get_image_resolution_if_needed(image_path, extracted_data)
 
-            # 페이지별 토큰 사용량 출력
-            # print(f"페이지 {page_number} - 요청에서 사용된 토큰 수: {page_prompt_tokens}")
-            # print(f"페이지 {page_number} - 응답에서 사용된 토큰 수: {page_completion_tokens}")
-            # print(f"페이지 {page_number} - 총 사용된 토큰 수: {page_total_tokens}")
+                # 그 전에 일단 정렬
+                extracted_data["shapes"] = custom_sort(extracted_data["shapes"])
 
-            # 각 페이지에서 사용된 토큰을 전체 합산
-            total_prompt_tokens_all_files += page_prompt_tokens
-            total_completion_tokens_all_files += page_completion_tokens
-            total_tokens_all_files += page_total_tokens
+                # shapes 리스트에서 label이 "TEXT", "FOOTNOTE", "REFERENCE" 인 블록만 처리
+                for shape in extracted_data["shapes"]:
+                    if shape["label"] in ["TEXT", "FOOTNOTE", "REFERENCE"]:
+                        text = shape["latex"]  # latex 필드에 텍스트가 있음
+                        coordinates = {
+                            "x1": shape["points"][0][0] / extracted_data["imageWidth"],
+                            "y1": shape["points"][0][1] / extracted_data["imageHeight"],
+                            "x2": shape["points"][1][0] / extracted_data["imageWidth"],
+                            "y2": shape["points"][1][1] / extracted_data["imageHeight"]
+                        }  # points에서 좌표 추출 및 정규화
 
-        except Exception as e:
-            print(f"An error occurred in file {json_filename}: {e}", flush=True)
+                        # 텍스트 블록별로 이미지 크롭
+                        encoded_cropped_img = crop_image(image_path, coordinates, block_index, json_page_number)
 
-        # 수정된 데이터를 새 JSON 파일로 저장 (updated 폴더에 저장)
-        output_json_file_path = os.path.join(updated_folder_path, f"{json_filename}")
-        with open(output_json_file_path, 'w', encoding='utf-8') as output_json_file:
-            json.dump(extracted_data, output_json_file, ensure_ascii=False, indent=4)
-        print(f"오타 검증이 완료되었으며, 결과가 {output_json_file_path} 파일에 저장되었습니다.", flush=True)
+                        # 유효한 크롭 이미지가 없으면 해당 블록 건너뛰기
+                        if not encoded_cropped_img:
+                            block_index += 1
+                            continue
+
+                        # GPT API로 크롭된 이미지와 텍스트 검증
+                        corrected_text, prompt_tokens, completion_tokens, total_used_tokens = check_image_and_text_with_gpt(
+                            encoded_cropped_img, text)
+
+                        # 페이지별 토큰 수 합산
+                        page_prompt_tokens += prompt_tokens
+                        page_completion_tokens += completion_tokens
+                        page_total_tokens += total_used_tokens
+
+                        # 결과를 업데이트
+                        if corrected_text:
+                            shape["latex"] = corrected_text
+
+                        block_index += 1  # 블록 인덱스 증가
+
+                # 각 페이지에서 사용된 토큰을 전체 합산
+                total_prompt_tokens_all_files += page_prompt_tokens
+                total_completion_tokens_all_files += page_completion_tokens
+                total_tokens_all_files += page_total_tokens
+
+            except Exception as e:
+                print(f"An error occurred in file {json_filename}: {e}", flush=True)
+
+            # 수정된 데이터를 새 JSON 파일로 저장 (updated_subfolder_path 폴더에 저장)
+            output_json_file_path = os.path.join(updated_subfolder_path, json_filename)
+            with open(output_json_file_path, 'w', encoding='utf-8') as output_json_file:
+                json.dump(extracted_data, output_json_file, ensure_ascii=False, indent=4)
+            print(f"오타 검증이 완료되었으며, 결과가 {output_json_file_path} 파일에 저장되었습니다.", flush=True)
+
+            # JSON과 PNG 파일의 앞부분 숫자 여부 확인
+            json_parts = first_json_file.split('_')
+            png_parts = first_png_file.split('_')
+
+            json_has_number = json_parts[0].isdigit() and len(json_parts[0]) < 5
+            png_has_number = png_parts[0].isdigit() and len(png_parts[0]) < 5
+
+            # JSON 파일에 번호가 있고, PNG 파일에 번호가 없는 경우 PNG 파일에도 번호 추가
+            for png_filename in png_files:
+                png_file_path = os.path.join(subfolder_path, png_filename)
+                output_png_file_path = os.path.join(updated_subfolder_path, png_filename)
+
+                # JSON 파일에 번호가 있고, PNG 파일에 번호가 없는 경우 PNG 파일에도 번호 추가
+                if json_has_number and not png_has_number:
+                    new_png_filename = f"{json_parts[0]}_{png_filename}"  # JSON 파일 앞 번호를 붙여서 PNG 파일 이름 변경
+                # JSON 파일에 번호가 없고, PNG 파일에 번호가 있는 경우 PNG 파일에서 번호 제거
+                elif not json_has_number and png_has_number:
+                    new_png_filename = '_'.join(png_parts[1:])  # PNG 파일 앞 번호 제거
+                else:
+                    new_png_filename = png_filename  # 둘 다 번호가 있거나 없으면 그대로 유지
+
+                # 새 파일 경로 생성 및 파일 이동
+                output_png_file_path = os.path.join(updated_subfolder_path, new_png_filename)
+                os.rename(png_file_path, output_png_file_path)
+                print(f"PNG 파일이 {output_png_file_path}로 이동되었습니다.")
+
 end_time = time.time()  # 종료 시간 기록
 elapsed_time = end_time - start_time  # 소요 시간 계산
 
-print(f"총 소요 시간 : {elapsed_time} seconds")
-
+print(f"총 소요 시간 : {elapsed_time:.2f} seconds")
 # 전체 폴더에서 사용된 총 토큰 출력
 print(f"요청 토큰 수: {total_prompt_tokens_all_files}")
 print(f"응답 토큰 수: {total_completion_tokens_all_files}")
 print(f"총 토큰 수: {total_tokens_all_files}")
-
