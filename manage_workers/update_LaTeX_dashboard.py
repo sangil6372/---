@@ -6,6 +6,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 from tabulate import tabulate
 
+pd.set_option('future.no_silent_downcasting', True)
+
 
 # Google 스프레드시트에서 데이터를 가져오는 함수
 def get_data_from_google_sheets(spreadsheet_url, worksheet_name):
@@ -13,7 +15,7 @@ def get_data_from_google_sheets(spreadsheet_url, worksheet_name):
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 
     # 자격 증명 파일 경로 (개인에 맞게 수정 필요)
-    json_key_path = r"C:\Users\박상일\Downloads\fiery-catwalk-434403-c2-89fd46213af3.json"
+    json_key_path = r"C:\Users\USER\PycharmProjects\pythonProject1\웅진북센\작업자관리\fiery-catwalk-434403-c2-89fd46213af3.json"
 
     # 자격 증명 파일을 통해 인증
     credentials = ServiceAccountCredentials.from_json_keyfile_name(json_key_path, scope)
@@ -102,8 +104,8 @@ df_new_1 = df_new_1[~df_new_1['코드네임'].isin(['pmadmin162', 'sangil'])]
 df_new_2 = df_new_2[~df_new_2['코드네임'].isin(['pmadmin162', 'sangil'])]
 
 # 컬럼명 통일
-df_new_1.columns = ['닉네임', '제출 날짜', '이미지 수량', '표 수량', '이미지 제출 수 2', '수식 수량', '텍스트 제출 수', '각주 제출 수', '참고문헌 제출 수']
-df_new_2.columns = ['닉네임', '제출 날짜', '이미지 수량', '표 수량', '이미지 제출 수 2', '수식 수량', '텍스트 제출 수', '각주 제출 수', '참고문헌 제출 수']
+df_new_1.columns = ['닉네임', '제출 날짜', '이미지 수량', '각주 제출 수', '수식 수량', '이미지 제출 수 2', '표 수량', '텍스트 제출 수', '참고문헌 제출 수']
+df_new_2.columns = ['닉네임', '제출 날짜', '이미지 수량', '각주 제출 수', '수식 수량', '이미지 제출 수 2', '표 수량', '텍스트 제출 수', '참고문헌 제출 수']
 
 df_new_1['표 수량'] = 0
 
