@@ -244,6 +244,11 @@ for subfolder_name in os.listdir(json_folder_path):
         json_files = [f for f in os.listdir(subfolder_path) if f.endswith('.json')]
         png_files = [f for f in os.listdir(subfolder_path) if f.endswith('.png')]
 
+        # png 파일이 없는 경우 해당 폴더 스킵
+        if len(png_files) < 1:
+            print(f"{subfolder_name}에는 png 파일이 하나도 없습니다.")
+            continue
+
         # json png 이름 비교 다를 경우 continue
         # 첫 번째 JSON 파일과 첫 번째 PNG 파일을 골라서 비교
         first_json_file = json_files[0]
@@ -365,24 +370,24 @@ for subfolder_name in os.listdir(json_folder_path):
             json_has_number = json_parts[0].isdigit() and len(json_parts[0]) < 5
             png_has_number = png_parts[0].isdigit() and len(png_parts[0]) < 5
 
+        # JSON 파일에 번호가 있고, PNG 파일에 번호가 없는 경우 PNG 파일에도 번호 추가
+        for png_filename in png_files:
+            png_file_path = os.path.join(subfolder_path, png_filename)
+            output_png_file_path = os.path.join(updated_subfolder_path, png_filename)
+
             # JSON 파일에 번호가 있고, PNG 파일에 번호가 없는 경우 PNG 파일에도 번호 추가
-            for png_filename in png_files:
-                png_file_path = os.path.join(subfolder_path, png_filename)
-                output_png_file_path = os.path.join(updated_subfolder_path, png_filename)
+            if json_has_number and not png_has_number:
+                new_png_filename = f"{json_parts[0]}_{png_filename}"  # JSON 파일 앞 번호를 붙여서 PNG 파일 이름 변경
+            # JSON 파일에 번호가 없고, PNG 파일에 번호가 있는 경우 PNG 파일에서 번호 제거
+            elif not json_has_number and png_has_number:
+                new_png_filename = '_'.join(png_parts[1:])  # PNG 파일 앞 번호 제거
+            else:
+                new_png_filename = png_filename  # 둘 다 번호가 있거나 없으면 그대로 유지
 
-                # JSON 파일에 번호가 있고, PNG 파일에 번호가 없는 경우 PNG 파일에도 번호 추가
-                if json_has_number and not png_has_number:
-                    new_png_filename = f"{json_parts[0]}_{png_filename}"  # JSON 파일 앞 번호를 붙여서 PNG 파일 이름 변경
-                # JSON 파일에 번호가 없고, PNG 파일에 번호가 있는 경우 PNG 파일에서 번호 제거
-                elif not json_has_number and png_has_number:
-                    new_png_filename = '_'.join(png_parts[1:])  # PNG 파일 앞 번호 제거
-                else:
-                    new_png_filename = png_filename  # 둘 다 번호가 있거나 없으면 그대로 유지
-
-                # 새 파일 경로 생성 및 파일 이동
-                output_png_file_path = os.path.join(updated_subfolder_path, new_png_filename)
-                os.rename(png_file_path, output_png_file_path)
-                print(f"PNG 파일이 {output_png_file_path}로 이동되었습니다.")
+            # 새 파일 경로 생성 및 파일 이동
+            output_png_file_path = os.path.join(updated_subfolder_path, new_png_filename)
+            os.rename(png_file_path, output_png_file_path)
+            print(f"PNG 파일이 {output_png_file_path}로 이동되었습니다.")
 
 end_time = time.time()  # 종료 시간 기록
 elapsed_time = end_time - start_time  # 소요 시간 계산
