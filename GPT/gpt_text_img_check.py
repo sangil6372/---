@@ -4,12 +4,45 @@ import json
 from openai import OpenAI
 import re
 import time
+import shutil
+import os
+import pandas as pd
+from openpyxl import load_workbook
+
+# 처리 완료된 서브 폴더를 옮길 경로 설정
+processed_folder_path = os.path.join('../처리완료')  # '처리완료' 폴더 경로
+os.makedirs(processed_folder_path, exist_ok=True)  # 폴더가 없을 경우 생성
 
 from env import settings
 
 MODEL: str = 'gpt-4o'
 client: OpenAI = OpenAI(api_key=settings.GPT_CONFIG['GPT_API_KEY'])
 
+# 엑셀 파일에 데이터를 한 행씩 추가하는 함수
+def append_to_excel(folder_name, request_tokens, output_tokens):
+    # 엑셀 파일 경로 지정
+    file_name = os.path.join(processed_folder_path, 'gpt_tokens.xlsx')
+
+    # 엑셀 파일이 존재하는지 확인
+    if not os.path.exists(file_name):
+        # 파일이 없으면 새로운 파일을 생성
+        df = pd.DataFrame(columns=['Folder Name', 'Request Tokens', 'Output Tokens'])
+        df.to_excel(file_name, index=False)
+
+    # 기존 엑셀 파일 불러오기
+    book = load_workbook(file_name)
+    writer = pd.ExcelWriter(file_name, engine='openpyxl')
+    writer.book = book
+
+    # 새 데이터 추가
+    new_data = pd.DataFrame([[folder_name, request_tokens, output_tokens]],
+                            columns=['Folder Name', 'Request Tokens', 'Output Tokens'])
+
+    # 기존 시트에 데이터 추가
+    new_data.to_excel(writer, index=False, header=False, startrow=writer.sheets['Sheet1'].max_row)
+
+    # 엑셀 파일 저장
+    writer.save()
 
 # 파일 탐색기를 사용하여 디렉토리를 선택하는 함수
 def select_directory(dialog_title):
@@ -240,6 +273,10 @@ start_time = time.time()  # 시작 시간 기록
 for subfolder_name in os.listdir(json_folder_path):
     subfolder_path = os.path.join(json_folder_path, subfolder_name)
 
+    # 각 서브폴더에서 사용된 토큰을 전체 합산
+    subfolder_prompt_tokens_all_files = 0
+    subfolder_completion_tokens_all_files = 0
+
     if os.path.isdir(subfolder_path):  # 하위 폴더인지 확인
         json_files = [f for f in os.listdir(subfolder_path) if f.endswith('.json')]
         png_files = [f for f in os.listdir(subfolder_path) if f.endswith('.png')]
@@ -349,10 +386,14 @@ for subfolder_name in os.listdir(json_folder_path):
 
                         block_index += 1  # 블록 인덱스 증가
 
+                subfolder_prompt_tokens_all_files += page_prompt_tokens
+                subfolder_completion_tokens_all_files += page_completion_tokens
+
+                # 폴더 이름, 요청 토큰, 아웃풋 토큰
+
                 # 각 페이지에서 사용된 토큰을 전체 합산
                 total_prompt_tokens_all_files += page_prompt_tokens
                 total_completion_tokens_all_files += page_completion_tokens
-                total_tokens_all_files += page_total_tokens
 
             except Exception as e:
                 print(f"An error occurred in file {json_filename}: {e}", flush=True)
@@ -388,6 +429,13 @@ for subfolder_name in os.listdir(json_folder_path):
             output_png_file_path = os.path.join(updated_subfolder_path, new_png_filename)
             os.rename(png_file_path, output_png_file_path)
             print(f"PNG 파일이 {output_png_file_path}로 이동되었습니다.")
+            # 엑셀 파일에 한 행씩 데이터 추가
+
+        append_to_excel(subfolder_name, subfolder_prompt_tokens_all_files, subfolder_completion_tokens_all_files)
+        # 처리 완료된 서브 폴더를 처리완료 폴더로 이동
+        destination_path = os.path.join(processed_folder_path, subfolder_name)
+        shutil.move(subfolder_path, destination_path)
+        print(f"서브 폴더가 처리완료 폴더로 이동되었습니다: {destination_path}")
 
 end_time = time.time()  # 종료 시간 기록
 elapsed_time = end_time - start_time  # 소요 시간 계산
