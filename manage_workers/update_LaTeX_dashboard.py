@@ -8,7 +8,6 @@ from tabulate import tabulate
 
 pd.set_option('future.no_silent_downcasting', True)
 
-
 # Google 스프레드시트에서 데이터를 가져오는 함수
 def get_data_from_google_sheets(spreadsheet_url, worksheet_name):
     # Google Sheets API에 접근하기 위한 범위 설정
@@ -27,14 +26,18 @@ def get_data_from_google_sheets(spreadsheet_url, worksheet_name):
     # 워크시트 열기
     worksheet = spreadsheet.worksheet(worksheet_name)
 
-    # 스프레드시트의 헤더 열 정의 (고유하게)
-    expected_headers = ['작업자명', '닉네임', '제출 날짜', '이미지 수량', '수식 수량', '표 수량', '금일 수식 이미지 수량', '금일 표 이미지 수량', '금일 수식 수량', '금일 표 수량', '업데이트 날짜']
+    # 시트의 모든 데이터를 텍스트 형식으로 가져오기
+    data = worksheet.get_all_values()
 
-    # 시트의 데이터를 모두 가져오기
-    data = worksheet.get_all_records(expected_headers=expected_headers)
+    # 첫 번째 행을 헤더로 사용하고, 데이터를 DataFrame으로 변환
+    df = pd.DataFrame(data[1:], columns=data[0])
 
-    # 데이터프레임으로 변환
-    df = pd.DataFrame(data)
+    # 닉네임 열을 문자열로 강제 변환 (필요시 추가적으로 다른 열도 변환 가능)
+    df['닉네임'] = df['닉네임'].astype(str)
+
+    # 수량 열들을 숫자로 변환 (필요한 열만 선택)
+    numeric_columns = ['이미지 수량', '수식 수량', '표 수량', '금일 수식 이미지 수량', '금일 표 이미지 수량', '금일 수식 수량', '금일 표 수량']
+    df[numeric_columns] = df[numeric_columns].apply(pd.to_numeric, errors='coerce', axis=1)
 
     return df, worksheet
 
@@ -88,7 +91,7 @@ file_path_1 = filedialog.askopenfilename(
 
 
 # 첫 번째 엑셀 파일 불러오기 (엑셀 파일에 닉네임과 데이터가 있다고 가정)
-df_new_1 = pd.read_excel(file_path_1)
+df_new_1 = pd.read_excel(file_path_1, dtype={'닉네임': str})  # 닉네임을 문자열로 불러오기
 
 # 두 번째 파일 선택 창 띄우기 (엑셀 파일 선택)
 file_path_2 = filedialog.askopenfilename(
@@ -98,20 +101,24 @@ file_path_2 = filedialog.askopenfilename(
 
 # 두 번째 엑셀 파일 불러오기
 df_new_2 = pd.read_excel(file_path_2)
+df_new_2 = pd.read_excel(file_path_2, dtype={'닉네임': str})  # 닉네임을 문자열로 불러오기
+
 
 # 'pmadmin162'와 'sangil' 코드네임 제거 (두 파일 모두 동일하게 처리)
 df_new_1 = df_new_1[~df_new_1['코드네임'].isin(['pmadmin162', 'sangil'])]
 df_new_2 = df_new_2[~df_new_2['코드네임'].isin(['pmadmin162', 'sangil'])]
 
 # 컬럼명 통일
-df_new_1.columns = ['닉네임', '제출 날짜', '이미지 수량', '각주 제출 수', '수식 수량', '이미지 제출 수 2', '표 수량', '텍스트 제출 수', '참고문헌 제출 수']
-df_new_2.columns = ['닉네임', '제출 날짜', '이미지 수량', '각주 제출 수', '수식 수량', '이미지 제출 수 2', '표 수량', '텍스트 제출 수', '참고문헌 제출 수']
+df_new_1.columns = ['닉네임', '제출 날짜', '이미지 수량', '각주 제출 수', '수식 수량', '이미지 제출 수 2', '표 수량', '텍스트 제출 수',  '참고문헌 제출 수']
+df_new_2.columns = ['닉네임', '제출 날짜', '이미지 수량', '표 수량', '이미지 제출 수 2', '수식 수량', '텍스트 제출 수', '각주 제출 수', '참고문헌 제출 수']
 
 df_new_1['표 수량'] = 0
 
 # '이미지 제출 수 2', '텍스트 제출 수', '각주 제출 수', '참고문헌 제출 수' 열 삭제
 df_agg_1 = df_new_1.drop(columns=['이미지 제출 수 2', '텍스트 제출 수', '각주 제출 수', '참고문헌 제출 수'])
 df_agg_2 = df_new_2.drop(columns=['이미지 제출 수 2', '텍스트 제출 수', '각주 제출 수', '참고문헌 제출 수'])
+
+print(df_agg_1[df_agg_1['닉네임'] == 'suygh']['이미지 수량'].sum())
 
 # 오늘 날짜로 데이터 필터링
 today = datetime.now().strftime('%Y-%m-%d')
@@ -128,21 +135,34 @@ df_today_agg_1 = df_today_1.groupby('닉네임').agg({
 }).reset_index()
 df_today_agg_1.columns = ['닉네임', '금일 수식 이미지 수량', '금일 수식 수량']
 
-# 표 엑셀 파일에서 금일 표 이미지 수량
+
+# 표 엑셀 파일에서 금일 표 이미지 수량 및 수식 수량 (수식 수량도 추가)
 df_today_agg_2 = df_today_2.groupby('닉네임').agg({
     '이미지 수량': 'sum',
-    '표 수량': 'sum'
+    '표 수량': 'sum',
+    '수식 수량': 'sum'  # 추가: 수식 수량도 가져옴
 }).reset_index()
-df_today_agg_2.columns = ['닉네임', '금일 표 이미지 수량', '금일 표 수량']
+df_today_agg_2.columns = ['닉네임', '금일 표 이미지 수량', '금일 표 수량', '금일 수식 수량']  # 추가: 금일 수식 수량
 
-# 금일 작업량 병합
+# 금일 작업량 병합 (수식 수량도 병합)
 df_today_agg = pd.merge(df_today_agg_1, df_today_agg_2, on='닉네임', how='outer')
-df_today_agg = df_today_agg[['닉네임', '금일 수식 이미지 수량', '금일 표 이미지 수량', '금일 수식 수량', '금일 표 수량']]
+
+# 병합 후 필요한 열만 선택
+df_today_agg = df_today_agg[['닉네임', '금일 수식 이미지 수량', '금일 표 이미지 수량', '금일 수식 수량_x', '금일 수식 수량_y', '금일 표 수량']]
+
+# 수식 수량을 합산하여 최종 금일 수식 수량으로 사용
+df_today_agg['금일 수식 수량'] = df_today_agg[['금일 수식 수량_x', '금일 수식 수량_y']].sum(axis=1)
+
+# 불필요한 중간 수식 수량 열 삭제
+df_today_agg = df_today_agg.drop(columns=['금일 수식 수량_x', '금일 수식 수량_y'])
+
+# 최종 출력
 print(tabulate(df_today_agg, headers='keys', tablefmt='pretty'))
 
 
 # 두 엑셀 파일 데이터를 합치기
 df_combined = pd.concat([df_agg_1, df_agg_2])
+
 
 # '닉네임'으로 그룹화하고 집계 처리:
 # - '이미지 수량' 등은 각각 합산
