@@ -4,6 +4,18 @@ import shutil
 import tkinter as tk
 from tkinter import filedialog
 
+import openpyxl
+import pandas as pd
+
+
+# Excel 파일을 불러옵니다. 파일 경로를 알맞게 수정하세요.
+file_path = r"C:\Users\USER\Downloads\북센 도서 메타데이터.xlsx"
+
+wb = openpyxl.load_workbook(file_path)
+ws = wb.active
+
+df = pd.read_excel(file_path)
+
 
 def check_and_save_json_files(folder_list, output_folder_formula, output_folder_table):
     # FORMULA와 TABLE 각각의 output_folder가 없으면 생성
@@ -15,9 +27,35 @@ def check_and_save_json_files(folder_list, output_folder_formula, output_folder_
 
     # 선택된 폴더 목록을 순회
     for folder in folder_list:
+
+        start_end = [(row['K'], row['M']) for _, row in df.iterrows() if folder in str(row['A'])]
+
+        # 시작 번호와 끝 번호를 불러옴
+        # 엑셀에서 파일명이 포함된 행의 시작번호(K열)와 끝번호(M열)를 찾는 코드
+        # for row in ws.iter_rows(min_row=2, max_col=13, values_only=True):  # A~M열까지이므로 max_col=13
+        #     file_name = row[0]  # A열의 파일명
+        #     if file_name in folder:
+        #         start_number = row[10]  # K열의 시작 번호
+        #         end_number = row[12]  # M열의 끝 번호
+        #         break
+
+
+
         for root, dirs, files in os.walk(folder):
             for filename in files:
+
                 if filename.endswith(".json"):
+                    # 파일명을 "_"를 기준으로 분리하고 마지막 부분에서 ".json"을 제거
+                    parts = filename.split("_")
+                    if len(parts) > 1:
+                        page_number_str = parts[-1].replace(".json", "")  # 마지막 부분에서 ".json" 제거
+                        page_number = int(page_number_str)  # 페이지 번호를 정수로 변환
+
+                        # 페이지 번호가 시작 번호와 끝 번호 사이에 있지 않으면 continue
+                        if page_number < start_end[0] or page_number > start_end[1]:
+                            continue
+
+
                     file_path = os.path.join(root, filename)
 
                     # JSON 파일 열기
@@ -50,12 +88,12 @@ def check_and_save_json_files(folder_list, output_folder_formula, output_folder_
 
 
 def group_folders_and_process(input_folder, output_base_folder):
-    # _ocr로 끝나는 폴더만 찾기
-    ocr_folders = [folder for folder in os.listdir(input_folder) if folder.endswith('_ocr')]
 
-    # 6개씩 묶어서 처리
-    for i in range(0, len(ocr_folders), 6):
-        group = ocr_folders[i:i + 6]
+    ocr_folders = [folder for folder in os.listdir(input_folder)]   # if folder.endswith('_ocr')  _ocr로 끝나는 폴더만 찾기
+
+    # n개씩 묶어서 처리
+    for i in range(0, len(ocr_folders), 22):
+        group = ocr_folders[i:i + 22]
 
         if len(group) == 0:
             continue
@@ -92,7 +130,7 @@ if __name__ == "__main__":
         exit()
 
     # output 폴더를 현재 프로젝트 내의 'output' 폴더로 설정
-    output_base_folder = os.path.join(os.getcwd(), './전자책LaTeX')
+    output_base_folder = os.path.join(os.getcwd(), './LaTeX업로드')
     if not os.path.exists(output_base_folder):
         os.makedirs(output_base_folder)
 
