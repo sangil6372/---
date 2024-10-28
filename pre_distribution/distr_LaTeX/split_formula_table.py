@@ -27,18 +27,13 @@ def check_and_save_json_files(folder_list, output_folder_formula, output_folder_
 
     # 선택된 폴더 목록을 순회
     for folder in folder_list:
+        folder_name = os.path.basename(folder)
+        print(folder_name)
 
-        start_end = [(row['K'], row['M']) for _, row in df.iterrows() if folder in str(row['A'])]
+        matching_rows = [(row['시작번호(pdf)'], row['끝번호(pdf)']) for _, row in df.iterrows() if str(row['파일명']) in folder_name ]
+        start_page, end_page = matching_rows[0]
 
-        # 시작 번호와 끝 번호를 불러옴
-        # 엑셀에서 파일명이 포함된 행의 시작번호(K열)와 끝번호(M열)를 찾는 코드
-        # for row in ws.iter_rows(min_row=2, max_col=13, values_only=True):  # A~M열까지이므로 max_col=13
-        #     file_name = row[0]  # A열의 파일명
-        #     if file_name in folder:
-        #         start_number = row[10]  # K열의 시작 번호
-        #         end_number = row[12]  # M열의 끝 번호
-        #         break
-
+        print("folder_name : " + folder_name + ",  start_page : " + str(start_page) + ",  end_page : " + str(end_page))
 
 
         for root, dirs, files in os.walk(folder):
@@ -52,7 +47,7 @@ def check_and_save_json_files(folder_list, output_folder_formula, output_folder_
                         page_number = int(page_number_str)  # 페이지 번호를 정수로 변환
 
                         # 페이지 번호가 시작 번호와 끝 번호 사이에 있지 않으면 continue
-                        if page_number < start_end[0] or page_number > start_end[1]:
+                        if page_number < start_page or page_number > end_page:
                             continue
 
 
@@ -92,8 +87,8 @@ def group_folders_and_process(input_folder, output_base_folder):
     ocr_folders = [folder for folder in os.listdir(input_folder)]   # if folder.endswith('_ocr')  _ocr로 끝나는 폴더만 찾기
 
     # n개씩 묶어서 처리
-    for i in range(0, len(ocr_folders), 22):
-        group = ocr_folders[i:i + 22]
+    for i in range(0, len(ocr_folders), 10):
+        group = ocr_folders[i:i + 10]
 
         if len(group) == 0:
             continue
