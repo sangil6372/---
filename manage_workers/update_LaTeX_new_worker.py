@@ -108,34 +108,31 @@ df_new_2 = pd.read_excel(file_path_2, dtype={'닉네임': str})  # 닉네임을 
 df_new_1 = df_new_1[~df_new_1['코드네임'].isin(['pmadmin162', 'sangil'])]
 df_new_2 = df_new_2[~df_new_2['코드네임'].isin(['pmadmin162', 'sangil'])]
 
-# df_new_1 코드네임 mazzy & 날짜 < 10/24 수식 데이터 전부 0으로
+# 필요한 컬럼 리스트
+required_columns = ['코드네임', '제출 날짜', '이미지 제출 수', 'FORMULA', 'TEXT', 'IMAGE', 'FOOTNOTE', 'REFERENCE', 'TABLE']
 
+# 누락된 컬럼이 있으면 0으로 채워 추가
+for col in required_columns:
+    if col not in df_new_1.columns:
+        df_new_1[col] = 0
+    if col not in df_new_2.columns:
+        df_new_2[col] = 0
 
-# df_new_1 코드네임 talalan & 날짜 2024-10-02 작업 표 개수 0으로
-
+# 컬럼을 알파벳 순서로 정렬
 df_new_1 = df_new_1[sorted(df_new_1.columns)]
 df_new_2 = df_new_2[sorted(df_new_2.columns)]
-
 print(df_new_1.columns)
 # 컬럼 이름 변경
 df_new_1.columns = ['각주 제출 수', '수식 수량', '이미지 제출 수 2', '참고문헌 제출 수', '표 수량', '텍스트 제출 수', '이미지 수량', '제출 날짜', '닉네임']
 df_new_2.columns = ['각주 제출 수', '수식 수량', '이미지 제출 수 2', '참고문헌 제출 수', '표 수량', '텍스트 제출 수', '이미지 수량', '제출 날짜', '닉네임']
 
-#----------- 예외 처리------------
-# 수식에서 표 전부 0
 df_new_1['표 수량'] = 0
-# df_new_2 코드네임 mazzy & 날짜 < 10/24 수식 데이터 전부 0으로
-df_new_2.loc[(df_new_2['닉네임'] == 'mazzy') & (df_new_2['제출 날짜'] < '2024-10-24'), ['수식 수량']] = 0
-df_new_2.loc[(df_new_2['닉네임'] == 'talalan') & (df_new_2['제출 날짜'] == '2024-10-02'), ['표 수량']] = 0
-df_new_2.loc[(df_new_2['닉네임'] == 'nh1217') & (df_new_2['제출 날짜'] == '2024-10-28'), '표 수량'] -= 1
-#----------- 예외 처리 ------------
-
 
 # '이미지 제출 수 2', '텍스트 제출 수', '각주 제출 수', '참고문헌 제출 수' 열 삭제
 df_agg_1 = df_new_1.drop(columns=['이미지 제출 수 2', '텍스트 제출 수', '각주 제출 수', '참고문헌 제출 수'])
-df_agg_2 = df_new_2.drop(columns=['이미지 제출 수 2', '텍스트 제출 수', '각주 제출 수', '참고문헌 제출 수'])
+df_agg_2 = df_new_2.drop(columns=['이미지 제출 수 2', '텍스트 제출 수', '각주 제출 수'])
 
-
+print(df_agg_1[df_agg_1['닉네임'] == 'suygh']['이미지 수량'].sum())
 
 # 오늘 날짜로 데이터 필터링
 today = datetime.now().strftime('%Y-%m-%d')
@@ -151,7 +148,6 @@ df_today_agg_1 = df_today_1.groupby('닉네임').agg({
     '수식 수량': 'sum'
 }).reset_index()
 df_today_agg_1.columns = ['닉네임', '금일 수식 이미지 수량', '금일 수식 수량']
-
 
 
 # 표 엑셀 파일에서 금일 표 이미지 수량 및 수식 수량 (수식 수량도 추가)
@@ -192,8 +188,6 @@ df_agg = df_combined.groupby(['닉네임']).agg({
     '표 수량' : 'sum'
 }).reset_index()
 
-
-
 # 기존 데이터와 금일 작업량 데이터를 병합
 df_merged = pd.merge(df_agg, df_today_agg, on='닉네임', how='outer')
 
@@ -209,8 +203,8 @@ df_merged.fillna({
 print(tabulate(df_merged, headers='keys', tablefmt='pretty'))
 
 # 구글 스프레드시트에서 기존 작업자명 및 닉네임 데이터 불러오기
-spreadsheet_url = 'https://docs.google.com/spreadsheets/d/1aKpkoXNAYkweCS_EFbYcjgCS47y85XLeO-Ge7mDeeuU/edit?gid=911524365'  # 스프레드시트 URL로 변경
-worksheet_name = 'LaTeX 작업자 현황'  # 워크시트 이름으로 변경
+spreadsheet_url = 'https://docs.google.com/spreadsheets/d/1aKpkoXNAYkweCS_EFbYcjgCS47y85XLeO-Ge7mDeeuU/edit?gid=1204738968#gid=1204738968'  # 스프레드시트 URL로 변경
+worksheet_name = 'LaTeX 신규(4차) 작업자'  # 워크시트 이름으로 변경
 df_existing, worksheet = get_data_from_google_sheets(spreadsheet_url, worksheet_name)
 
 # '닉네임'을 기준으로 기존 데이터와 엑셀 데이터를 병합
@@ -230,8 +224,6 @@ df_merged['금일 표 수량'] = df_merged['금일 표 수량_y']
 
 # 불필요한 컬럼 삭제
 df_merged = df_merged.drop(columns=['제출 날짜_x', '이미지 수량_x', '수식 수량_x', '제출 날짜_y', '이미지 수량_y', '수식 수량_y', '금일 수식 이미지 수량_x','금일 수식 이미지 수량_y','금일 표 이미지 수량_x','금일 표 이미지 수량_y', '금일 수식 수량_x', '금일 수식 수량_y', '금일 표 수량_x', '금일 표 수량_y', '표 수량_x', '표 수량_y'])
-
-
 
 # 병합된 데이터 출력
 print(tabulate(df_merged, headers='keys', tablefmt='pretty'))

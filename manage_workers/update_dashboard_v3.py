@@ -3,7 +3,10 @@ from oauth2client.service_account import ServiceAccountCredentials
 import gspread
 import boto3
 from datetime import datetime
+import sys
+import os
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from env import settings
 
 
@@ -92,7 +95,7 @@ scope = ['https://spreadsheets.google.com/feeds',
          'https://www.googleapis.com/auth/drive']
 
 # 개인에 따라 수정 필요 - 다운로드 받았던 키 값 경로
-json_key_path = r"C:/Users/PC/Downloads/fiery-catwalk-434403-c2-89fd46213af3.json"
+json_key_path = r"C:\Users\USER\Desktop\웅진_북센\booxen-refine-python\env\fiery-catwalk-434403-c2-89fd46213af3.json"
 
 credential = ServiceAccountCredentials.from_json_keyfile_name(json_key_path, scope)
 gc = gspread.authorize(credential)
@@ -112,7 +115,6 @@ df = pd.DataFrame(sheet.get_all_values())
 df.rename(columns=df.iloc[0], inplace=True)
 df.drop(df.index[0], inplace=True)
 
-df.to_excel(f"C:/Users/PC/Desktop/2024/24-ds-111_웅진북센/6. 작업진행률 로그/{datetime.now().strftime('%Y_%m_%d_%H_%M')}.xlsx")
 
 processed_datas = []
 for i, row in df.iterrows():
@@ -176,4 +178,4 @@ sheet.update([[val] for val in update_G], cell_range)
 
 now = datetime.now().strftime("%Y-%m-%d %H:%M")
 print(f"{now} 업데이트 완료")
-sheet.update_acell("I2", now)
+sheet.update_acell("K2", now)
