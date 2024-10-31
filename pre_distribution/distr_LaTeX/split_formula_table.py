@@ -38,6 +38,9 @@ def check_and_save_json_files(folder_list, output_folder_formula, output_folder_
 
         for root, dirs, files in os.walk(folder):
             for filename in files:
+                file_path = os.path.join(root, filename)
+                if os.path.getsize(file_path) == 0:  # 파일 크기가 0인 경우
+                    print(f"Empty file detected: {file_path}")
 
                 if filename.endswith(".json"):
                     # 파일명을 "_"를 기준으로 분리하고 마지막 부분에서 ".json"을 제거
@@ -87,8 +90,8 @@ def group_folders_and_process(input_folder, output_base_folder):
     ocr_folders = [folder for folder in os.listdir(input_folder)]   # if folder.endswith('_ocr')  _ocr로 끝나는 폴더만 찾기
 
     # n개씩 묶어서 처리
-    for i in range(0, len(ocr_folders), 10):
-        group = ocr_folders[i:i + 10]
+    for i in range(0, len(ocr_folders), 20):
+        group = ocr_folders[i:i + 20]
 
         if len(group) == 0:
             continue

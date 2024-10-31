@@ -31,7 +31,11 @@ if parent_folder and memo_file:
     all_folders = [f for f in os.listdir(parent_folder) if os.path.isdir(os.path.join(parent_folder, f))]
 
     # 삭제해야 하는 폴더들 확인 (메모장에 없는 폴더들)
-    folders_to_delete = set(all_folders) - set(folder_names_to_keep)
+    # folders_to_delete = set(all_folders) - set(folder_names_to_keep)
+
+    # 메모장에 있는 폴더들을 삭제할 경우
+    folders_to_delete = set(all_folders) & set(folder_names_to_keep)
+
 
     # 하위 폴더 삭제
     for folder_name in folders_to_delete:
