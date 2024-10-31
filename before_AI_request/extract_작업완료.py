@@ -16,7 +16,7 @@ root.withdraw()  # Tkinter 기본 창 숨기기
 
 # 메모장 파일 선택
 selected_file = filedialog.askopenfilename(title="메모장 파일을 선택하세요", filetypes=[("Text Files", "*.txt")])
-# 메모장 파일에서 다운로드하지 않을 파일 목록 읽기
+# 메모장 파일에서 다운로드할  파일 목록 읽기
 if selected_file:
     try:
         with open(selected_file, "r", encoding="utf-8") as file:
@@ -62,30 +62,29 @@ def download_json_from_s3(bucket_name, prefix, download_path, download_type):
     # JSON 파일만 다운로드 (폴더 구조 유지)
     for bbox_folder in unique_bbox_folders:
 
-        # bbox_folder에 files_to_skip 중 하나라도 포함되어 있으면 다운로드 생략
+        # bbox_folder에 files_to_skip 중 하나라도 포함되어 있으면 다운로드
         skip_download = any(skip in bbox_folder for skip in files_to_skip)
         if skip_download:
-            print(f"폴더 {bbox_folder}은 메모장 파일에 기록된 이름을 포함하고 있어 건너뜁니다.")
-            continue
+            print(f"폴더 {bbox_folder}은 메모장 파일에 기록된 이름을 포함하고 있어 다운로드 합니다.")
+            bbox_prefix = f"{prefix}{bbox_folder + download_type}/"
+            bbox_pages = paginator.paginate(Bucket=bucket_name, Prefix=bbox_prefix)
 
-        bbox_prefix = f"{prefix}{bbox_folder + download_type}/"
-        bbox_pages = paginator.paginate(Bucket=bucket_name, Prefix=bbox_prefix)
+            for bbox_page in bbox_pages:
 
-        for bbox_page in bbox_pages:
+                if 'Contents' in bbox_page:
+                    for bbox_obj in bbox_page['Contents']:
+                        if bbox_obj['Key'].endswith('.json') or bbox_obj['Key'].endswith('.png') :
+                            json_file_key = bbox_obj['Key']
+                            relative_path = os.path.relpath(json_file_key, prefix)
+                            local_filepath = os.path.join(download_path, relative_path)
 
-            if 'Contents' in bbox_page:
-                for bbox_obj in bbox_page['Contents']:
-                    if bbox_obj['Key'].endswith('.json')  or bbox_obj['Key'].endswith('.png') :
-                        json_file_key = bbox_obj['Key']
-                        relative_path = os.path.relpath(json_file_key, prefix)
-                        local_filepath = os.path.join(download_path, relative_path)
+                            # 로컬 경로에 폴더가 없다면 생성
+                            os.makedirs(os.path.dirname(local_filepath), exist_ok=True)
 
-                        # 로컬 경로에 폴더가 없다면 생성
-                        os.makedirs(os.path.dirname(local_filepath), exist_ok=True)
+                            # 파일 다운로드
+                            s3.download_file(bucket_name, json_file_key, local_filepath)
+                            print(f"Downloaded {json_file_key} to {local_filepath}")
 
-                        # 파일 다운로드
-                        s3.download_file(bucket_name, json_file_key, local_filepath)
-                        print(f"Downloaded {json_file_key} to {local_filepath}")
 
 
 # 사용 예시 # 종이책도 다운 할 것 -> 있는 것 요청 (기존에 이미 받은 것 제외)

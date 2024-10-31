@@ -94,9 +94,9 @@ def merge_json_files(original_folder, ocr_folder, output_folder):
                     if orig_shape['points'] == ocr_shape['points']:
                         if is_text_garbled(orig_shape['latex']):
                             orig_shape['latex'] = ocr_shape['latex']
-                        # 텍스트 길이 차이가 ocr_text 보다 10% 클 경우 대체
-                        elif len(ocr_shape['latex'])*0.9 <= len(orig_shape['latex']) <= len(ocr_shape['latex'])*1.1 :
-                            orig_shape['latex'] = ocr_shape['latex']
+                        # 텍스트 길이 차이가 ocr_text 보다 10% 클 경우 대체  -> 이게 잘 될 지 모르겠음
+                        # elif len(ocr_shape['latex'])*0.9 <= len(orig_shape['latex']) <= len(ocr_shape['latex'])*1.1 :
+                        #     orig_shape['latex'] = ocr_shape['latex']
 
 
                         """if orig_shape['latex'].count('{f}') != formula_cnt:
@@ -154,7 +154,7 @@ def merge_json_files(original_folder, ocr_folder, output_folder):
                 os.makedirs(output_folder)
             output_file_path = os.path.join(output_folder, file_name)
             shutil.copy(original_file_path, output_file_path)
-        print(f'Merged {len(common_files)} files.')
+    print(f'Merged {len(common_files)} files.')
 
     # 폴더 이름을 추출하고 해당 폴더의 cnt 값을 사전에 저장
     folder_name = os.path.basename(original_folder)
@@ -221,10 +221,10 @@ def custom_sort(shapes):
     return sorted_shapes
 
 
-original_folder_path = r"C:\Users\USER\Downloads\종이책_OCR추론요청0926_json\updated"
-ocr_folder_path = r"C:\Users\USER\Desktop\웅진 북센\booxen-refine-python\pre_distribution\distr_OCR\1004_ai_ocr"
+original_folder_path = r"C:\Users\USER\Desktop\1011_ocr\전자책\updated"
+ocr_folder_path = r"C:\Users\USER\Desktop\1011_ocr\전자책\ocr"
 output_folder_path = r"OCR 추론"
-comp_folder = r"./1004_OCR_업로드완료"
+comp_folder = r"./1012_OCR_업로드완료"
 
 # original_folder_dict = {f.split('_')[1]: f for f in os.listdir(original_folder_path)}
 original_folder_dict = {f: f for f in os.listdir(original_folder_path)}
