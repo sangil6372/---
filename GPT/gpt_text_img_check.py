@@ -10,13 +10,15 @@ import pandas as pd
 from openpyxl import load_workbook
 
 # 처리 완료된 서브 폴더를 옮길 경로 설정
-processed_folder_path = os.path.join('../처리완료')  # '처리완료' 폴더 경로
+processed_folder_path = os.path.join(r'C:\Users\USER\Desktop\웅진_북센\booxen-refine-python\GPT/처리완료')  # '처리완료' 폴더 경로
 os.makedirs(processed_folder_path, exist_ok=True)  # 폴더가 없을 경우 생성
 
 from env import settings
 
 MODEL: str = 'gpt-4o'
 client: OpenAI = OpenAI(api_key=settings.GPT_CONFIG['GPT_API_KEY'])
+
+
 
 # 엑셀 파일에 데이터를 한 행씩 추가하는 함수
 def append_to_excel(folder_name, request_tokens, output_tokens):
@@ -128,6 +130,10 @@ def crop_image(image_path, coordinates, block_index, page_number):
         x2 = int(coordinates["x2"] * img_width)
         y2 = int(coordinates["y2"] * img_height)
 
+        # 좌표 정렬 (잘못된 순서라면 교정)
+        x1, x2 = min(x1, x2), max(x1, x2)
+        y1, y2 = min(y1, y2), max(y1, y2)
+
         # 좌표가 이미지 경계를 벗어나면 None 리턴
         if x1 < 0 or y1 < 0 or x2 > img_width or y2 > img_height:
             print(f"Block {block_index} on page {page_number} is out of bounds. Skipping this block.")
@@ -186,6 +192,19 @@ def get_image_resolution_if_needed(image_path, extracted_data):
         print(f"Error getting image resolution for {image_path}: {e}")
 
 
+gpt_failure_keywords = [
+    "extracted text", "extract text", "sorry"
+    "I'm unable to assist",
+    "I'm unable to verify the extracted text", "I'm unable to extract text directly from an image",
+    "I can't help with that", "I'm unable to access the images",
+    "I'm unable to extract", "text extraction",
+    "이미지에서 추출", "수정된 텍스트",
+    "이미지를 분석",
+    "추출된 텍스트", "텍스트를 추출", "죄송"
+]
+
+
+
 # GPT API를 사용한 오타 검증 함수
 def check_image_and_text_with_gpt(image_base64, text):
     try:
@@ -225,6 +244,20 @@ def check_image_and_text_with_gpt(image_base64, text):
 
         corrected_text = response.choices[0].message.content.strip()
 
+        # 만약 correct_text가 비어있을 경우, gpt 답변이 불가능할 경우(자주 나오는 패턴)
+        if corrected_text is None:
+            # None일 경우
+            print(f"[GPT_ERROR] : GPT_OUTPUT: None, ORIGINAL_TEXT: {text}")
+            corrected_text = text  # corrected_text를 text로 대체
+        elif corrected_text == "" or corrected_text.isspace():
+            # 비어있거나 공백인 경우
+            print(f"[GPT_ERROR] : GPT_OUTPUT: Empty or Whitespace, ORIGINAL_TEXT: {text}")
+            corrected_text = text  # corrected_text를 text로 대체
+        elif any(keyword.lower() in corrected_text.lower() for keyword in gpt_failure_keywords):
+            # gpt_failure_keywords 중 하나라도 포함된 경우
+            print(f"[GPT_ERROR] : GPT_OUTPUT: {corrected_text}, ORIGINAL_TEXT: {text}")
+            corrected_text = text  # corrected_text를 text로 대체
+
         # 사용된 토큰 수 추출 및 반환
         prompt_tokens = response.usage.prompt_tokens
         completion_tokens = response.usage.completion_tokens
@@ -260,7 +293,7 @@ def clean_filename(filename):
 json_folder_path = select_directory("OCR 텍스트가 저장된 JSON 파일들이 있는 폴더를 선택하세요")
 
 # 설정한 경로에 gpt_updated/ 폴더 생성
-gpt_updated_folder_path = os.path.join(r'../GPT_UPDATED', 'gpt_updated')
+gpt_updated_folder_path = os.path.join(r'C:\Users\USER\Desktop\웅진_북센\booxen-refine-python\GPT/GPT_UPDATED', 'gpt_updated')
 os.makedirs(gpt_updated_folder_path, exist_ok=True)
 
 # 전체 폴더에서 사용된 토큰을 저장할 변수들
@@ -276,6 +309,8 @@ for subfolder_name in os.listdir(json_folder_path):
     # 각 서브폴더에서 사용된 토큰을 전체 합산
     subfolder_prompt_tokens_all_files = 0
     subfolder_completion_tokens_all_files = 0
+
+
 
     if os.path.isdir(subfolder_path):  # 하위 폴더인지 확인
         json_files = [f for f in os.listdir(subfolder_path) if f.endswith('.json')]
@@ -303,6 +338,7 @@ for subfolder_name in os.listdir(json_folder_path):
         # gpt_updated/ 안에 하위 폴더 이름과 동일한 폴더 생성
         updated_subfolder_path = os.path.join(gpt_updated_folder_path, subfolder_name)
         os.makedirs(updated_subfolder_path, exist_ok=True)
+
 
         # JSON 파일 처리
         for json_filename in json_files:  # 중복된 os.listdir 제거
@@ -397,6 +433,7 @@ for subfolder_name in os.listdir(json_folder_path):
 
             except Exception as e:
                 print(f"An error occurred in file {json_filename}: {e}", flush=True)
+                continue
 
             # 수정된 데이터를 새 JSON 파일로 저장 (updated_subfolder_path 폴더에 저장)
             output_json_file_path = os.path.join(updated_subfolder_path, json_filename)
@@ -404,12 +441,12 @@ for subfolder_name in os.listdir(json_folder_path):
                 json.dump(extracted_data, output_json_file, ensure_ascii=False, indent=4)
             print(f"오타 검증이 완료되었으며, 결과가 {output_json_file_path} 파일에 저장되었습니다.", flush=True)
 
-            # JSON과 PNG 파일의 앞부분 숫자 여부 확인
-            json_parts = first_json_file.split('_')
-            png_parts = first_png_file.split('_')
+        # JSON과 PNG 파일의 앞부분 숫자 여부 확인
+        json_parts = first_json_file.split('_')
+        png_parts = first_png_file.split('_')
 
-            json_has_number = json_parts[0].isdigit() and len(json_parts[0]) < 5
-            png_has_number = png_parts[0].isdigit() and len(png_parts[0]) < 5
+        json_has_number = json_parts[0].isdigit() and len(json_parts[0]) < 5
+        png_has_number = png_parts[0].isdigit() and len(png_parts[0]) < 5
 
         # JSON 파일에 번호가 있고, PNG 파일에 번호가 없는 경우 PNG 파일에도 번호 추가
         for png_filename in png_files:
@@ -427,11 +464,16 @@ for subfolder_name in os.listdir(json_folder_path):
 
             # 새 파일 경로 생성 및 파일 이동
             output_png_file_path = os.path.join(updated_subfolder_path, new_png_filename)
-            os.rename(png_file_path, output_png_file_path)
+            try :
+                os.rename(png_file_path, output_png_file_path)
+            except :
+                print("error : 이미 옮겨졌으므로 건너 뜁니다.")
+                continue
+
             print(f"PNG 파일이 {output_png_file_path}로 이동되었습니다.")
             # 엑셀 파일에 한 행씩 데이터 추가
 
-        append_to_excel(subfolder_name, subfolder_prompt_tokens_all_files, subfolder_completion_tokens_all_files)
+        # append_to_excel(subfolder_name, subfolder_prompt_tokens_all_files, subfolder_completion_tokens_all_files)
         # 처리 완료된 서브 폴더를 처리완료 폴더로 이동
         destination_path = os.path.join(processed_folder_path, subfolder_name)
         shutil.move(subfolder_path, destination_path)
