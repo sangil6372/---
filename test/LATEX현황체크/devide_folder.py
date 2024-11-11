@@ -2,7 +2,7 @@ import os
 import shutil
 import pandas as pd
 
-base_path = r"C:\Users\USER\Desktop\latex완료"
+base_path = r"C:\Users\USER\Desktop\변경된 수식미션"
 excel_path = r"C:\Users\USER\Downloads\도서 정제  관리 시트.xlsx"
 out_base = r"./LaTeX_분류완료"
 
