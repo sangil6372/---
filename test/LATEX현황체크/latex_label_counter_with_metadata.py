@@ -10,6 +10,11 @@ import os
 import json
 import pandas as pd
 
+import os
+import json
+import tkinter as tk
+from tkinter import filedialog
+import pandas as pd
 
 def count_labels_in_folder(input_folder, df):
     results = []
@@ -21,12 +26,18 @@ def count_labels_in_folder(input_folder, df):
             formula_inside_count = 0
             formula_outside_count = 0
             table_count = 0
-            book_page_count_with_only_formula_inside = 0  # 내부 수식만 있는 페이지 수
-            book_page_count_without_formula = 0  # 수식이 없는 페이지 수
-            total_file_count = 0  # 폴더 내 전체 파일 개수
-            file_with_formula_or_table_count = 0  # formula 혹은 table 레이블이 있는 파일 개수
-            book_page_count_with_table = 0  # 표가 하나 이상 있는 페이지 수
-            book_page_count_with_table_no_outside_formula = 0  # 외부 수식은 없고 표가 하나 이상 있는 페이지 수
+            book_page_count_with_only_formula_inside = 0
+            book_page_count_without_formula = 0
+            total_file_count = 0
+            file_with_formula_or_table_count = 0
+            book_page_count_with_table = 0
+            book_page_count_with_table_no_outside_formula = 0
+
+            # 추가된 변수들
+            table_page_formula_inside_count = 0
+            table_page_formula_outside_count = 0
+            non_table_formula_inside_count = 0  # 테이블이 없는 페이지의 내부 수식 개수
+            non_table_formula_outside_count = 0  # 테이블이 없는 페이지의 외부 수식 개수
 
             matching_rows = [
                 (row['시작번호(pdf)'], row['끝번호(pdf)']) for _, row in df.iterrows()
@@ -41,7 +52,7 @@ def count_labels_in_folder(input_folder, df):
 
             for filename in os.listdir(folder_path):
                 if filename.endswith(".json"):
-                    total_file_count += 1  # 총 파일 개수 증가
+                    total_file_count += 1
                     file_path = os.path.join(folder_path, filename)
                     parts = filename.split("_")
                     if len(parts) > 1:
@@ -64,16 +75,26 @@ def count_labels_in_folder(input_folder, df):
                                 if shape.get('label') in ['TEXT', 'FOOTNOTE', 'REFERENCE']
                             ]
 
-                            page_has_formula_outside = False  # 외부 수식이 있는지 확인
-                            page_has_table = False  # 페이지에 TABLE 레이블이 하나 이상 있는지 여부
-                            page_has_formula_inside_only = False  # 내부 수식만 있는 페이지
-                            page_has_formula = False  # 페이지에 수식이 있는지 여부
-                            has_formula_or_table = False  # 파일에 formula 혹은 table 있는지 여부
+                            page_has_formula_outside = False
+                            page_has_table = False
+                            page_has_formula_inside_only = False
+                            page_has_formula = False
+                            has_formula_or_table = False
+                            formula_inside_in_table_page = 0
+                            formula_outside_in_table_page = 0
 
+                            # 먼저 TABLE 레이블이 있는지 확인하여 page_has_table 설정
+                            for shape in data.get('shapes', []):
+                                if shape.get('label') == 'TABLE':
+                                    table_count += 1
+                                    has_formula_or_table = True
+                                    page_has_table = True
+
+                            # FORMULA 레이블 확인 및 내부, 외부 수식 카운팅
                             for shape in data.get('shapes', []):
                                 if shape.get('label') == 'FORMULA':
                                     page_has_formula = True
-                                    has_formula_or_table = True  # formula 레이블이 존재하므로 True로 설정
+                                    has_formula_or_table = True
                                     points = shape.get('points', [])
                                     if len(points) == 2:
                                         cx = (points[0][0] + points[1][0]) / 2
@@ -87,32 +108,33 @@ def count_labels_in_folder(input_folder, df):
                                         if inside_text:
                                             formula_inside_count += 1
                                             page_has_formula_inside_only = True
+                                            if page_has_table:
+                                                formula_inside_in_table_page += 1
+                                            else:
+                                                non_table_formula_inside_count += 1
                                         else:
                                             formula_outside_count += 1
                                             page_has_formula_outside = True
+                                            if page_has_table:
+                                                formula_outside_in_table_page += 1
+                                            else:
+                                                non_table_formula_outside_count += 1
 
-                                elif shape.get('label') == 'TABLE':
-                                    table_count += 1
-                                    has_formula_or_table = True  # table 레이블이 존재하므로 True로 설정
-                                    page_has_table = True  # 이 페이지에 TABLE 레이블이 있음으로 설정
-
-                            # 표가 하나 이상 있고 외부 수식이 없는 페이지 수 카운트
+                            # 테이블과 외부 수식 조건에 따라 페이지 수 카운팅
                             if page_has_table and not page_has_formula_outside:
                                 book_page_count_with_table_no_outside_formula += 1
 
-                            # 표가 하나 이상 있는 페이지 수 카운트
                             if page_has_table:
                                 book_page_count_with_table += 1
+                                table_page_formula_inside_count += formula_inside_in_table_page
+                                table_page_formula_outside_count += formula_outside_in_table_page
 
-                            # 외부 수식이나 테이블이 없는 경우에만 내부 수식 전용 페이지로 카운트
                             if page_has_formula_inside_only and not page_has_formula_outside:
                                 book_page_count_with_only_formula_inside += 1
 
-                            # 수식이 전혀 없는 페이지 카운트
                             if not page_has_formula:
                                 book_page_count_without_formula += 1
 
-                            # formula 혹은 table 레이블이 있는 파일 개수 증가
                             if has_formula_or_table:
                                 file_with_formula_or_table_count += 1
 
@@ -129,6 +151,10 @@ def count_labels_in_folder(input_folder, df):
             print(f" - Pages with table but no outside formula: {book_page_count_with_table_no_outside_formula}")
             print(f" - Total files: {total_file_count}")
             print(f" - Files with formula or table: {file_with_formula_or_table_count}")
+            print(f" - Table pages with inside formula: {table_page_formula_inside_count}")
+            print(f" - Table pages with outside formula: {table_page_formula_outside_count}")
+            print(f" - Non-table pages with inside formula: {non_table_formula_inside_count}")
+            print(f" - Non-table pages with outside formula: {non_table_formula_outside_count}")
             print()
 
             results.append({
@@ -139,9 +165,13 @@ def count_labels_in_folder(input_folder, df):
                 "내부 수식 전용 페이지 수": book_page_count_with_only_formula_inside,
                 "수식이 없는 페이지 수": book_page_count_without_formula,
                 "표가 하나 이상 있는 페이지 수": book_page_count_with_table,
-                "표만 있고 외부 수식 없는 페이지 수": book_page_count_with_table_no_outside_formula,  # 새로 추가된 컬럼
+                "표만 있고 외부 수식 없는 페이지 수": book_page_count_with_table_no_outside_formula,
                 "폴더 파일 수": total_file_count,
-                "FORMULA/TABLE 포함 파일 수": file_with_formula_or_table_count
+                "FORMULA/TABLE 포함 파일 수": file_with_formula_or_table_count,
+                "테이블이 있는 페이지 내부 수식": table_page_formula_inside_count,
+                "테이블이 있는 페이지 외부 수식": table_page_formula_outside_count,
+                "테이블 없는 페이지 내부 수식": non_table_formula_inside_count,
+                "테이블 없는 페이지 외부 수식": non_table_formula_outside_count
             })
 
     return results
@@ -150,7 +180,7 @@ def count_labels_in_folder(input_folder, df):
 if __name__ == "__main__":
     # tkinter 기본 창 숨기기
     root = tk.Tk()
-    root.withdraw()  # 기본 창을 숨김
+    root.withdraw()
 
     # input 폴더 선택
     input_folder = filedialog.askdirectory(title="Select the input folder")
@@ -172,14 +202,15 @@ if __name__ == "__main__":
         output_df = pd.DataFrame(results, columns=[
             "폴더명", "FORMULA (내부)", "FORMULA (외부)", "TABLE",
             "내부 수식 전용 페이지 수", "수식이 없는 페이지 수",
-            "표가 하나 이상 있는 페이지 수", "표만 있고 외부 수식 없는 페이지 수",  # 새로 추가된 컬럼
-            "폴더 파일 수", "FORMULA/TABLE 포함 파일 수"
+            "표가 하나 이상 있는 페이지 수", "표만 있고 외부 수식 없는 페이지 수",
+            "폴더 파일 수", "FORMULA/TABLE 포함 파일 수",
+            "테이블이 있는 페이지 내부 수식", "테이블이 있는 페이지 외부 수식",
+            "테이블 없는 페이지 내부 수식", "테이블 없는 페이지 외부 수식"
         ])
 
-        output_file = "LATEX완료_재확인.xlsx"
+        output_file = "355_ocr_count.xlsx"
         output_df.to_excel(output_file, index=False)
 
         print(f"Results saved to {output_file}")
-
 
 
