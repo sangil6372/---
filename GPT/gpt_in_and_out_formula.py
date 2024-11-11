@@ -1,13 +1,13 @@
+import shutil
 import tkinter as tk
+import uuid
 from tkinter import filedialog
 import json
 from openai import OpenAI
 import re
 import time
-import shutil
 import os
-import pandas as pd
-from openpyxl import load_workbook
+
 
 # 처리 완료된 서브 폴더를 옮길 경로 설정
 processed_folder_path = os.path.join(r'C:\Users\USER\Desktop\웅진_북센\booxen-refine-python\GPT/처리완료')  # '처리완료' 폴더 경로
@@ -22,32 +22,6 @@ client: OpenAI = OpenAI(api_key=settings.GPT_CONFIG['GPT_API_KEY'])
 
 total_requests = 0
 
-# 엑셀 파일에 데이터를 한 행씩 추가하는 함수
-def append_to_excel(folder_name, request_tokens, output_tokens):
-    # 엑셀 파일 경로 지정
-    file_name = os.path.join(processed_folder_path, 'gpt_tokens.xlsx')
-
-    # 엑셀 파일이 존재하는지 확인
-    if not os.path.exists(file_name):
-        # 파일이 없으면 새로운 파일을 생성
-        df = pd.DataFrame(columns=['Folder Name', 'Request Tokens', 'Output Tokens'])
-        df.to_excel(file_name, index=False)
-
-    # 기존 엑셀 파일 불러오기
-    book = load_workbook(file_name)
-    writer = pd.ExcelWriter(file_name, engine='openpyxl')
-    writer.book = book
-
-    # 새 데이터 추가
-    new_data = pd.DataFrame([[folder_name, request_tokens, output_tokens]],
-                            columns=['Folder Name', 'Request Tokens', 'Output Tokens'])
-
-    # 기존 시트에 데이터 추가
-    new_data.to_excel(writer, index=False, header=False, startrow=writer.sheets['Sheet1'].max_row)
-
-    # 엑셀 파일 저장
-    writer.save()
-
 # 파일 탐색기를 사용하여 디렉토리를 선택하는 함수
 def select_directory(dialog_title):
     root = tk.Tk()
@@ -55,24 +29,26 @@ def select_directory(dialog_title):
     directory_path = filedialog.askdirectory(title=dialog_title)
     return directory_path
 
-# 텍스트 박스 내부에 수식 중심이 포함되어 있는지 확인하는 함수
-def is_inline_formula(shape, text_bboxes):
-    x1, y1 = shape["points"][0]
-    x2, y2 = shape["points"][1]
-    cx = (x1 + x2) / 2  # 수식의 x 중심 좌표
-    cy = (y1 + y2) / 2  # 수식의 y 중심 좌표
+# 각 라벨에 따른 프롬프트 템플릿 정의
+def generate_prompt(label):
+    if label == "FORMULA":
+        return r"""첨부한 이미지는 도서에서 수식박스를 크롭한 작은 이미지입니다.
+                                    해당 수식을 LaTeX코드로 변환해주세요.
+                                    package, 포맷팅이나 \(\), \[,\]등의 수식 환경, 태그 등의 코드 블록 표시나 포맷팅 텍스트는 제외 해주세요.
+                                    없는 내용을 추가하거나 수식을 잘못 해석하는 경우가 없도록 이미지의 내용을 객관적으로 그대로 반영해 주세요.
+                                    LaTeX 명령어 사용 할 때 빈칸이나 중괄호를 사용해서 인수와 구분해줘
+                                    수식 외의 부가 설명은 전부 제외하고 변환된 LaTeX코드만 그대로 출력해 주세요."""
 
-    # 수식 중심이 텍스트 박스 내에 포함되는지 확인
-    for tx1, ty1, tx2, ty2 in text_bboxes:
-        # 항상 좌상단과 우하단을 올바르게 정하도록 min, max 사용
-        left = min(tx1, tx2)
-        right = max(tx1, tx2)
-        top = min(ty1, ty2)
-        bottom = max(ty1, ty2)
+    prompt_dict = {
+        "OUTLINE": r"package,포맷팅이나 \(..\), \[..\]등의 수식환경은 제외하고, LaTeX코드로 변환해줘",
+        "EQUATION": r"equation 환경 하나만 사용해서 latex 코드로 변환해줘, \tag{}를 써서 수식번호를 표시해",
+        "ALIGN": r"\begin{align} 환경 하나만 사용해서 latex 코드로 변환해줘, 각 줄 \tag{}를 써서 수식번호를 표시하고 반드시 각 수식 라인의 맨 앞 혹은 특정 부분에 '&' 기호를 사용해서 이미지와 완전히 동일하게 정렬해",
+        "ALIGN*": r"\begin{align*} 환경 하나만 사용해서 latex 코드로 변환하고 반드시 각 수식 라인의 맨 앞 혹은 특정 부분에 '&' 기호를 사용해서 이미지와 완전히 동일하게 정렬해",
+        "MULTLINE": r"multline 환경 하나만 사용해서 latex 코드로 변환해줘. 수식 번호가 있을 경우 \tag{}를 써서 수식번호를 표시해",
+        "GATHER": r"gather 환경 하나만 사용해서 latex 코드로 변환해줘. 수식 번호가 있을 경우 \tag{}를 써서 수식번호를 표시해"
+    }
+    return prompt_dict.get(label, r"이미지의 수식을 LaTeX 코드로 변환해 주세요. 포맷팅은 제외해 주시고 LaTeX 명령어만 반환해 주세요.")
 
-        if left <= cx <= right and top <= cy <= bottom:
-            return True
-    return False
 
 # 두 박스의 y 좌표가 겹치는지 확인하는 함수
 def is_overlapping_y(box1, box2):
@@ -150,6 +126,7 @@ def crop_image(image_path, coordinates, block_index, page_number):
         x2 = coordinates["x2"]
         y2 = coordinates["y2"]
 
+
         # 좌표 정렬 (잘못된 순서라면 교정)
         x1, x2 = min(x1, x2), max(x1, x2)
         y1, y2 = min(y1, y2), max(y1, y2)
@@ -195,7 +172,6 @@ def crop_image(image_path, coordinates, block_index, page_number):
         return None
 
 
-
 gpt_failure_keywords = [
     "extracted text", "extract text", "sorry"
     "I'm unable to assist",
@@ -206,34 +182,50 @@ gpt_failure_keywords = [
     "이미지를 분석",
     "추출된 텍스트", "텍스트를 추출", "죄송"
 ]
-
-
+n_commands = {
+        "\\neq", "\\newline", "\\newpage", "\\nabla", "\\newcommand", "\\neg", "\\natural",
+        "\\newenvironment", "\\nofiles", "\\ni", "\\not", "\\normalsize", "\\normalfont",
+        "\\nolinebreak", "\\nsim", "\\nless", "\\nleq", "\\ngeq", "\\nsupseteq",
+        "\\newcounter", "\\newlength", "\\newtheorem", "\\nrightarrow", "\\nLeftarrow",
+        "\\nRightarrow", "\\nLeftrightarrow", "\\newsavebox", "\\noindent", "\\newfont",
+        "\\nwarrow", "\\nearrow"
+    }
 
 # GPT API를 사용한 오타 검증 함수
-def check_image_and_text_with_gpt(image_base64, text):
+# GPT API로 크롭된 이미지와 텍스트 검증 (라벨에 따른 프롬프트 적용)
+def check_image_and_text_with_gpt(image_base64, text, label):
     global total_requests
-    total_requests += 1  # Increment the request counter
+    total_requests += 1  # 요청 횟수 증가
+
+    # 각 라벨에 맞는 프롬프트 생성
+    prompt_content = generate_prompt(label)
+
+    pre_prompt = r"""첨부한 이미지는 도서에서 수식박스를 크롭한 이미지입니다. 
+                    없는 내용을 추가하거나 수식을 잘못 해석하는 경우가 없도록 이미지의 내용을 객관적으로 그대로 반영해"""
+    post_prompt = r"""환경을 중첩해서 사용하지 말고 단 하나의 환경만 사용해. 
+                    package, latex 코드 블럭 표시나, 수식 앞 뒤에 붙는 모든 포맷팅 텍스트 등은 전부 제외해줘. 
+                    줄바꿈은 \\로 표현해. 
+                    수식 외의 부가 설명은 전부 제외하고 변환된 LaTeX코드만 그대로 출력해"""
+
+    if label == 'FORMULA':
+        pre_prompt = ""
+        post_prompt = ""
+
 
     try:
-
         response = client.chat.completions.create(
             model=MODEL,
             messages=[
                 {
                     "role": "system",
-                    "content": "당신은 이미지의 수식을 LaTeX코드로 변환하는 도우미입니다."
+                    "content": "당신은 이미지의 수식을 LaTeX 코드로 변환하는 도우미입니다."
                 },
                 {
                     "role": "user",
                     "content": [
                         {
                             "type": "text",
-                            "text": r"첨부한 이미지는 도서에서 수식박스를 크롭한 작은 이미지입니다."
-                                    r"해당 수식을 LaTeX코드로 변환해주세요."
-                                    r"package, 포맷팅이나 \(\), \[,\]등의 수식 환경, 태그 등의 코드 블록 표시나 포맷팅 텍스트는 제외 해주세요."
-                                    r"없는 내용을 추가하거나 수식을 잘못 해석하는 경우가 없도록 이미지의 내용을 객관적으로 그대로 반영해 주세요."
-                                    r"LaTeX 명령어 사용 할 때 빈칸이나 중괄호를 사용해서 인수와 구분해줘"
-                                    r"수식 외의 부가 설명은 전부 제외하고 변환된 LaTeX코드만 그대로 출력해 주세요."
+                            "text": pre_prompt + prompt_content + post_prompt
                         },
                         {
                             "type": "image_url",
@@ -248,28 +240,49 @@ def check_image_and_text_with_gpt(image_base64, text):
         )
 
         corrected_text = response.choices[0].message.content.strip()
-        corrected_text = corrected_text.replace('\n', ' ').replace("latex```", "").replace("```", "").strip()
 
         # 만약 correct_text가 비어있을 경우, gpt 답변이 불가능할 경우(자주 나오는 패턴)
         if corrected_text is None:
             # None일 경우
             print(f"[GPT_ERROR] : GPT_OUTPUT: None, ORIGINAL_TEXT: {text}")
             corrected_text = text  # corrected_text를 text로 대체
+            # random_filename = f"{uuid.uuid4()}.png"
+            # 이미지를 디코딩하고 로컬에 저장
+            # with open(r"C:\Users\USER\Desktop\웅진_북센\booxen-refine-python\GPT\error_cropped\\" + random_filename, "wb") as image_file:
+            #     image_file.write(base64.b64decode(encoded_cropped_img))
         elif corrected_text == "" or corrected_text.isspace():
             # 비어있거나 공백인 경우
             print(f"[GPT_ERROR] : GPT_OUTPUT: Empty or Whitespace, ORIGINAL_TEXT: {text}")
             corrected_text = text  # corrected_text를 text로 대체
+            # random_filename = f"{uuid.uuid4()}.png"
+            # 이미지를 디코딩하고 로컬에 저장
+            # with open(r"C:\Users\USER\Desktop\웅진_북센\booxen-refine-python\GPT\error_cropped\\" + random_filename,
+            #           "wb") as image_file:
+            #     image_file.write(base64.b64decode(encoded_cropped_img))
         elif any(keyword.lower() in corrected_text.lower() for keyword in gpt_failure_keywords):
             # gpt_failure_keywords 중 하나라도 포함된 경우
             print(f"[GPT_ERROR] : GPT_OUTPUT: {corrected_text}, ORIGINAL_TEXT: {text}")
             corrected_text = text  # corrected_text를 text로 대체
-
-
+            # random_filename = f"{uuid.uuid4()}.png"
+            # 이미지를 디코딩하고 로컬에 저장
+            # with open(r"C:\Users\USER\Desktop\웅진_북센\booxen-refine-python\GPT\error_cropped\\" + random_filename,
+            #           "wb") as image_file:
+            #     image_file.write(base64.b64decode(encoded_cropped_img))
         # 사용된 토큰 수 추출 및 반환
         prompt_tokens = response.usage.prompt_tokens
         completion_tokens = response.usage.completion_tokens
         total_used_tokens = response.usage.total_tokens
 
+        if '&' not in corrected_text and 'align' in corrected_text:
+            corrected_text = corrected_text.replace('\\\\', '\\\\ &')
+            corrected_text = corrected_text.replace('begin{align}', 'begin{align} &')
+            corrected_text = corrected_text.replace('begin{align*}', 'begin{align*} &')
+
+        # \n으로 시작하고, n_commands에 포함되지 않는 단어를 찾는 패턴
+        # pattern = re.compile(r'(?<!\\)\\n')
+        corrected_text = corrected_text.replace('\n', ' ').replace("latex```", "").replace("```", "").strip()
+
+        # 매칭된 패턴에 대해서 \n을 " "으로 치환
         return corrected_text, prompt_tokens, completion_tokens, total_used_tokens
 
     except Exception as e:
@@ -300,7 +313,7 @@ def clean_filename(filename):
 json_folder_path = select_directory("OCR 텍스트가 저장된 JSON 파일들이 있는 폴더를 선택하세요")
 
 # 설정한 경로에 gpt_updated/ 폴더 생성
-gpt_updated_folder_path = os.path.join(r"C:\Users\USER\Desktop\웅진_북센\booxen-refine-python\GPT\GPT_UPDATED", 'gpt_inline_updated')
+gpt_updated_folder_path = os.path.join(r"C:\Users\USER\Desktop\웅진_북센\booxen-refine-python\GPT\GPT_UPDATED", 'gpt_in_out_updated')
 os.makedirs(gpt_updated_folder_path, exist_ok=True)
 
 # 전체 폴더에서 사용된 토큰을 저장할 변수들
@@ -317,9 +330,8 @@ for subfolder_name in os.listdir(json_folder_path):
     subfolder_prompt_tokens_all_files = 0
     subfolder_completion_tokens_all_files = 0
 
-
-
     if os.path.isdir(subfolder_path):  # 하위 폴더인지 확인
+
         json_files = [f for f in os.listdir(subfolder_path) if f.endswith('.json')]
         png_files = [f for f in os.listdir(subfolder_path) if f.endswith('.png')]
 
@@ -329,24 +341,26 @@ for subfolder_name in os.listdir(json_folder_path):
             print(f"{subfolder_name}에는 png 파일이 하나도 없습니다.")
             continue
 
-        # json png 이름 비교 다를 경우 continue
-        # 첫 번째 JSON 파일과 첫 번째 PNG 파일을 골라서 비교
+        # # json png 이름 비교 다를 경우 continue
+        # # 첫 번째 JSON 파일과 첫 번째 PNG 파일을 골라서 비교
         first_json_file = json_files[0]
         first_png_file = png_files[0]
-
+        #
         # 파일 이름에서 첫 번째 언더바 앞의 숫자가 5개 미만이면 제거
         cleaned_json_filename = clean_filename(first_json_file.replace('.json', ''))
         cleaned_png_filename = clean_filename(first_png_file.replace('.png', ''))
 
-        # 비교 후 다르면 continue
+        # # 비교 후 다르면 continue
         if cleaned_json_filename.split('_')[0] != cleaned_png_filename.split('_')[0]:
-            print(f"파일 이름이 다릅니다: {cleaned_json_filename} != {cleaned_png_filename}")
-            continue
+             print(f"파일 이름이 다릅니다: {cleaned_json_filename} != {cleaned_png_filename}")
+             continue
 
         # gpt_updated/ 안에 하위 폴더 이름과 동일한 폴더 생성
         updated_subfolder_path = os.path.join(gpt_updated_folder_path, subfolder_name)
         os.makedirs(updated_subfolder_path, exist_ok=True)
 
+        # PNG 파일을 사전에 저장하여 JSON 파일에서 쉽게 참조할 수 있도록 설정
+        png_file_map = {extract_page_number_from_filename(f): f for f in png_files}
 
         # JSON 파일 처리
         for json_filename in json_files:  # 중복된 os.listdir 제거
@@ -368,19 +382,13 @@ for subfolder_name in os.listdir(json_folder_path):
                 print(f"페이지 번호를 추출할 수 없습니다: {json_filename}")
                 continue
 
-            image_file_name = None
-            for png_filename in png_files:
-                png_page_number = extract_page_number_from_filename(png_filename)
-                if json_page_number == png_page_number:
-                    image_file_name = png_filename
-                    break
-
-            if not image_file_name:  # error 출력 필요
-                print(f"PNG 파일을 찾을 수 없습니다: {json_filename}")
+            # PNG 파일 이름을 사전에서 가져오기
+            image_file_name = png_file_map.get(json_page_number)
+            if not image_file_name:
+                print(f"[Warning] PNG 파일을 찾을 수 없습니다: {json_filename}")
                 continue
 
             # 이미지 파일 경로 생성
-            #           image_file_name = f"{os.path.splitext(json_filename)[0]}.png"  # JSON 파일과 같은 이름의 이미지 파일
             image_path = os.path.join(subfolder_path, image_file_name)
 
             # 이미지 폴더 순회 및 오타 검증
@@ -389,6 +397,8 @@ for subfolder_name in os.listdir(json_folder_path):
                 page_prompt_tokens = 0
                 page_completion_tokens = 0
                 page_total_tokens = 0
+
+                # JSON 파일의 해상도 값이 0일 경우 이미지 파일에서 대체하는 함수 호출
 
                 # 그 전에 일단 정렬
                 extracted_data["shapes"] = custom_sort(extracted_data["shapes"])
@@ -403,38 +413,37 @@ for subfolder_name in os.listdir(json_folder_path):
                         if text_shape["label"] in ["TEXT", "FOOTNOTE", "REFERENCE"]  # 수정된 부분
                     ]
 
-                    # 'inline formula'만 처리
-                    if shape["label"] == "FORMULA" and is_inline_formula(shape, text_bboxes):
+                    # 'outline formula' & 'inline formula' 둘 다 처리
+                    if shape["label"] in ["FORMULA","OUTLINE", "EQUATION", "ALIGN", "ALIGN*", "MULTLINE",
+                                          "GATHER"] :
                         text = shape["latex"]
                         coordinates = {
-                            "x1": shape["points"][0][0],
+                            "x1": shape["points"][0][0] ,
                             "y1": shape["points"][0][1] ,
                             "x2": shape["points"][1][0] ,
                             "y2": shape["points"][1][1]
                         }
 
-                        # 텍스트 블록별로 이미지 크롭
                         encoded_cropped_img = crop_image(image_path, coordinates, block_index, json_page_number)
 
                         if not encoded_cropped_img:
                             block_index += 1
                             continue
 
-                        # GPT API로 크롭된 이미지와 텍스트 검증
                         corrected_text, prompt_tokens, completion_tokens, total_used_tokens = check_image_and_text_with_gpt(
-                            encoded_cropped_img, text
+                            encoded_cropped_img, text, shape["label"]
                         )
 
-                        # 페이지별 토큰 수 합산
+                        # 결과 업데이트
+                        if corrected_text:
+                            shape["latex"] = corrected_text
+
                         page_prompt_tokens += prompt_tokens
                         page_completion_tokens += completion_tokens
                         page_total_tokens += total_used_tokens
 
-                        # 결과를 업데이트
-                        if corrected_text:
-                            shape["latex"] = corrected_text
+                        block_index += 1
 
-                        block_index += 1  # 블록 인덱스 증가
 
                 subfolder_prompt_tokens_all_files += page_prompt_tokens
                 subfolder_completion_tokens_all_files += page_completion_tokens
