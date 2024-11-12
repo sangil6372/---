@@ -193,7 +193,7 @@ def get_image_resolution_if_needed(image_path, extracted_data):
 
 
 gpt_failure_keywords = [
-    "extracted text", "extract text", "sorry"
+    "extracted text", "extract text", "sorry",
     "I'm unable to assist",
     "I'm unable to verify the extracted text", "I'm unable to extract text directly from an image",
     "I can't help with that", "I'm unable to access the images",
